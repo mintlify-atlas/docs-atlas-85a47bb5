@@ -1,0 +1,141 @@
+---
+title: Environment Variables
+description: Configure your Toluca Altas Montañas application with the required environment variables
+---
+
+## Overview
+
+Toluca Altas Montañas requires specific environment variables to connect to Supabase and enable all features. All variables must be configured in a `.env.local` file in the project root.
+
+<Warning>
+  Never commit your `.env.local` file to version control. It contains sensitive credentials that should remain private.
+</Warning>
+
+## Required Variables
+
+### NEXT_PUBLIC_SUPABASE_URL
+
+The URL of your Supabase project.
+
+```bash
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+```
+
+**Where to find it:**
+- Go to your Supabase project dashboard
+- Navigate to Settings → API
+- Copy the "Project URL"
+
+**Usage:**
+- Client-side Supabase connections (`lib/supabase/client.ts:4`)
+- Server-side Supabase connections (`lib/supabase/server.ts:13`)
+- API routes for player registrations (`app/api/player-registrations/route.ts:7`)
+
+### NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+
+The anonymous/publishable API key for your Supabase project.
+
+```bash
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your_anon_key_here
+```
+
+**Where to find it:**
+- Go to your Supabase project dashboard
+- Navigate to Settings → API
+- Copy the "anon/public" key
+
+**Usage:**
+- Client-side Supabase connections (`lib/supabase/client.ts:6`)
+- Server-side Supabase connections (`lib/supabase/server.ts:14`)
+
+<Note>
+  The project uses `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` instead of the older `NEXT_PUBLIC_SUPABASE_ANON_KEY` naming convention.
+</Note>
+
+### SUPABASE_SERVICE_ROLE_KEY
+
+The service role key for server-side operations that bypass Row Level Security (RLS).
+
+```bash
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key_here
+```
+
+**Where to find it:**
+- Go to your Supabase project dashboard
+- Navigate to Settings → API
+- Copy the "service_role" key (you may need to reveal it)
+
+**Usage:**
+- API routes for player registrations (`app/api/player-registrations/route.ts:8`)
+- Allows inserting player registrations without authentication
+
+<Warning>
+  The service role key bypasses all RLS policies. Keep it secure and never expose it to the client side. Only use it in server-side code and API routes.
+</Warning>
+
+## Setup Instructions
+
+### 1. Create Environment File
+
+Create a `.env.local` file in the root of your project:
+
+```bash
+touch .env.local
+```
+
+### 2. Add Variables
+
+Add all required variables to `.env.local`:
+
+```bash .env.local
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your_anon_key_here
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key_here
+```
+
+### 3. Verify Configuration
+
+After adding the variables, restart your development server:
+
+```bash
+npm run dev
+```
+
+The application should now connect to Supabase successfully.
+
+## Legacy Variable Names
+
+The README mentions an older naming convention that is also supported:
+
+```bash
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key_here
+```
+
+However, the current codebase uses `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. If you're migrating from an older version, update your variable names accordingly.
+
+## Troubleshooting
+
+### Missing Variables Error
+
+If you see an error like "Faltan variables del servidor (URL o SERVICE_ROLE_KEY)", verify that:
+
+1. Your `.env.local` file exists in the project root
+2. All three environment variables are defined
+3. There are no typos in variable names
+4. You've restarted the development server after making changes
+
+### Connection Errors
+
+If Supabase connections fail:
+
+1. Verify your `NEXT_PUBLIC_SUPABASE_URL` is correct
+2. Check that your API keys are valid and not expired
+3. Ensure your Supabase project is active and not paused
+
+### Client-Side Exposure
+
+Variables prefixed with `NEXT_PUBLIC_` are exposed to the browser. Only use this prefix for:
+- Supabase URL
+- Publishable/anon key
+
+Never prefix the service role key with `NEXT_PUBLIC_`.

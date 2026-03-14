@@ -1,0 +1,556 @@
+---
+title: Exporting Data
+description: Learn how to export player registration data to CSV format for external analysis and reporting
+---
+
+## Overview
+
+The admin dashboard includes a powerful export feature that allows you to download registration data as CSV (Comma-Separated Values) files. This enables offline analysis, backup, and integration with other tools like Excel, Google Sheets, or data analysis software.
+
+## Quick Start
+
+<Steps>
+  <Step title="Apply filters (optional)">
+    Use search and filters to narrow down the registrations you want to export.
+  </Step>
+  
+  <Step title="Click Exportar button">
+    Click the "Exportar" button in the top toolbar.
+  </Step>
+  
+  <Step title="Download CSV file">
+    Your browser will automatically download a CSV file with the filtered results.
+  </Step>
+</Steps>
+
+<Note>
+The export includes **only the currently filtered registrations**, not all registrations in the database. Always verify your active filters before exporting.
+</Note>
+
+## Export Implementation
+
+### Export Function
+
+The export functionality is implemented as a client-side CSV generator:
+
+```typescript
+function exportCSV(rows: RegistrationRow[]) {
+  const headers = ["Nombre", "Edad", "Teléfono", "Sede", "Categoría", "Fecha"];
+
+  const lines = rows.map((r) => {
+    const sede = normalize(r.venue?.name, "Sin sede");
+    const cat = normalize(r.category?.name, "Sin categoría");
+    const age = calcAge(r.birth_date);
+    const fecha = formatFecha(r.created_at);
+
+    const cells = [
+      r.full_name ?? "",
+      age == null ? "" : String(age),
+      r.phone ?? "",
+      sede,
+      cat,
+      fecha,
+    ].map((x) => `"${String(x).replaceAll('"', '""')}"`);
+
+    return cells.join(",");
+  });
+
+  const csv = [headers.join(","), ...lines].join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `registros_${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+```
+
+## CSV Structure
+
+### Column Headers
+
+The exported CSV includes six columns:
+
+| Column Name | Description | Data Source |
+|-------------|-------------|-------------|
+| **Nombre** | Player's full name | `full_name` |
+| **Edad** | Current age in years | Calculated from `birth_date` |
+| **Teléfono** | Contact phone number | `phone` |
+| **Sede** | Preferred training venue | `venues.name` |
+| **Categoría** | Age category | `categories.name` |
+| **Fecha** | Registration date | `created_at` (formatted) |
+
+### Example CSV Output
+
+```csv
+Nombre,Edad,Teléfono,Sede,Categoría,Fecha
+"Juan García Pérez","15","5512345678","Metepec","Sub-17","14 mar 2026"
+"María López Torres","13","5587654321","Toluca Centro","Sub-15","13 mar 2026"
+"Carlos Martínez","17","5598765432","Sin sede","Sub-17","12 mar 2026"
+```
+
+## Data Processing
+
+### Age Calculation
+
+Player age is calculated at export time based on current date:
+
+```typescript
+function calcAge(birthDate: string) {
+  const d = new Date(birthDate);
+  if (Number.isNaN(d.getTime())) return null;
+  const now = new Date();
+  let age = now.getFullYear() - d.getFullYear();
+  const m = now.getMonth() - d.getMonth();
+  if (m < 0 || (m === 0 && now.getDate() < d.getDate())) age--;
+  return age;
+}
+```
+
+This ensures exported ages are accurate as of the export date.
+
+### Date Formatting
+
+Registration dates are formatted in Spanish locale:
+
+```typescript
+function formatFecha(s: string) {
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return "—";
+  return new Intl.DateTimeFormat("es-MX", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  }).format(d);
+}
+```
+
+Output format: `DD MMM YYYY` (e.g., "14 mar 2026")
+
+### Handling Missing Data
+
+Missing or null values are handled gracefully:
+
+```typescript
+const sede = normalize(r.venue?.name, "Sin sede");
+const cat = normalize(r.category?.name, "Sin categoría");
+const age = age == null ? "" : String(age);
+```
+
+<CardGroup cols={2}>
+  <Card title="Missing Venue" icon="map-pin">
+    Exports as "Sin sede"
+  </Card>
+  
+  <Card title="Missing Category" icon="tag">
+    Exports as "Sin categoría"
+  </Card>
+  
+  <Card title="Invalid Birth Date" icon="calendar-xmark">
+    Age column left empty
+  </Card>
+  
+  <Card title="Missing Phone" icon="phone-slash">
+    Phone column left empty
+  </Card>
+</CardGroup>
+
+## CSV Encoding
+
+### Character Encoding
+
+The CSV is exported with UTF-8 encoding to properly support Spanish characters:
+
+```typescript
+const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+```
+
+This ensures proper display of:
+- Accented characters (á, é, í, ó, ú)
+- Special characters (ñ, ¿, ¡)
+- Proper Spanish formatting
+
+### CSV Escaping
+
+Field values are properly escaped according to CSV standards:
+
+```typescript
+const cells = [
+  r.full_name ?? "",
+  age == null ? "" : String(age),
+  r.phone ?? "",
+  sede,
+  cat,
+  fecha,
+].map((x) => `"${String(x).replaceAll('"', '""')}"`);
+```
+
+This handles:
+- Commas in names (e.g., "García, Juan")
+- Quotes in text (doubled: "" instead of ")
+- Line breaks in fields
+
+<Note>
+All fields are quoted to prevent issues with special characters. This is the safest approach for CSV generation.
+</Note>
+
+## File Naming
+
+### Automatic Filename
+
+Exported files are automatically named with the current date:
+
+```typescript
+a.download = `registros_${new Date().toISOString().slice(0, 10)}.csv`;
+```
+
+Filename format: `registros_YYYY-MM-DD.csv`
+
+Examples:
+- `registros_2026-03-14.csv`
+- `registros_2026-12-25.csv`
+
+<Tip>
+The ISO date format (YYYY-MM-DD) sorts chronologically when viewed in file explorers, making it easy to organize exports by date.
+</Tip>
+
+## Export Scope
+
+### Respects Active Filters
+
+The export button exports the **currently filtered results**:
+
+```typescript
+<button
+  onClick={() => exportCSV(data.filtrados)}
+>
+  <Download size={16} />
+  Exportar
+</button>
+```
+
+`data.filtrados` contains only the registrations that match:
+- Current search query
+- Selected venue filter
+- Selected category filter
+
+### Export Scenarios
+
+<AccordionGroup>
+  <Accordion title="Scenario 1: Export All Registrations">
+    1. Ensure no filters are active (search empty, dropdowns set to "Todas")
+    2. Click "Exportar"
+    3. Result: CSV contains all registrations in the database
+  </Accordion>
+  
+  <Accordion title="Scenario 2: Export Specific Venue">
+    1. Select venue from dropdown (e.g., "Metepec")
+    2. Click "Exportar"
+    3. Result: CSV contains only Metepec registrations
+  </Accordion>
+  
+  <Accordion title="Scenario 3: Export Search Results">
+    1. Type search query (e.g., "García")
+    2. Click "Exportar"
+    3. Result: CSV contains only registrations matching "García"
+  </Accordion>
+  
+  <Accordion title="Scenario 4: Export Combined Filters">
+    1. Select venue: "Toluca Centro"
+    2. Select category: "Sub-17"
+    3. Type search: "55" (phone prefix)
+    4. Click "Exportar"
+    5. Result: CSV contains Sub-17 players in Toluca Centro with phones containing "55"
+  </Accordion>
+</AccordionGroup>
+
+<Warning>
+**Always verify your filters before exporting!**
+
+Check the result counter in the filter bar to confirm how many records will be exported:
+```
+Mostrando: 45
+```
+This means your export will contain 45 registrations.
+</Warning>
+
+## Browser Compatibility
+
+### Supported Browsers
+
+The export feature uses modern browser APIs:
+
+```typescript
+// Create Blob for CSV data
+const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+
+// Create download URL
+const url = URL.createObjectURL(blob);
+
+// Use Clipboard API for copy
+await navigator.clipboard.writeText(phone);
+```
+
+<CardGroup cols={2}>
+  <Card title="Chrome" icon="chrome">
+    Fully supported (version 88+)
+  </Card>
+  
+  <Card title="Firefox" icon="firefox-browser">
+    Fully supported (version 85+)
+  </Card>
+  
+  <Card title="Safari" icon="safari">
+    Fully supported (version 14.1+)
+  </Card>
+  
+  <Card title="Edge" icon="edge">
+    Fully supported (version 88+)
+  </Card>
+</CardGroup>
+
+### Download Location
+
+Exported files are downloaded to your browser's default download location:
+- **Windows**: Usually `C:\Users\[Username]\Downloads`
+- **macOS**: Usually `/Users/[Username]/Downloads`
+- **Linux**: Usually `/home/[username]/Downloads`
+
+You can change this in your browser settings.
+
+## Opening CSV Files
+
+### Excel
+
+<Steps>
+  <Step title="Open Excel">
+    Launch Microsoft Excel.
+  </Step>
+  
+  <Step title="Open file">
+    File > Open > Navigate to downloaded CSV.
+  </Step>
+  
+  <Step title="Text Import Wizard (if needed)">
+    If Excel doesn't automatically parse the CSV:
+    - Select "Delimited"
+    - Choose "Comma" as delimiter
+    - Ensure UTF-8 encoding for Spanish characters
+  </Step>
+</Steps>
+
+### Google Sheets
+
+<Steps>
+  <Step title="Open Google Sheets">
+    Navigate to sheets.google.com.
+  </Step>
+  
+  <Step title="Import file">
+    File > Import > Upload > Select the CSV file.
+  </Step>
+  
+  <Step title="Choose import options">
+    - Import location: "Replace spreadsheet" or "Insert new sheet"
+    - Separator type: "Comma"
+    - Click "Import data"
+  </Step>
+</Steps>
+
+### Text Editors
+
+You can open CSV files in any text editor to view raw data:
+- **VS Code**: Excellent CSV viewing with extensions
+- **Notepad++**: Good for quick viewing
+- **TextEdit/Notepad**: Basic viewing
+
+<Note>
+For large CSV files (>1000 rows), consider using dedicated CSV viewers or data analysis tools like Python's pandas or R instead of Excel.
+</Note>
+
+## Data Analysis Examples
+
+### Excel Pivot Table
+
+Create a pivot table to analyze registrations by venue and category:
+
+```excel
+1. Open exported CSV in Excel
+2. Select all data (Ctrl+A)
+3. Insert > PivotTable
+4. Drag "Sede" to Rows
+5. Drag "Categoría" to Columns
+6. Drag "Nombre" to Values (Count)
+```
+
+### Google Sheets Chart
+
+Visualize registrations over time:
+
+```
+1. Import CSV to Google Sheets
+2. Select "Fecha" and "Nombre" columns
+3. Insert > Chart
+4. Chart type: Line chart
+5. Customize as needed
+```
+
+### Python Analysis
+
+Analyze data programmatically with pandas:
+
+```python
+import pandas as pd
+
+# Load CSV
+df = pd.read_csv('registros_2026-03-14.csv')
+
+# Count registrations by venue
+venue_counts = df['Sede'].value_counts()
+print(venue_counts)
+
+# Average age by category
+avg_age = df.groupby('Categoría')['Edad'].mean()
+print(avg_age)
+
+# Filter and export subset
+sub17 = df[df['Categoría'] == 'Sub-17']
+sub17.to_csv('sub17_registros.csv', index=False)
+```
+
+## Export Limitations
+
+<Warning>
+**Current Limitations:**
+
+1. **Client-side only**: Export happens in the browser. Very large datasets (>10,000 rows) may cause performance issues.
+
+2. **No server-side backup**: Exports are not automatically backed up. Save important exports to a secure location.
+
+3. **Fixed columns**: You cannot customize which columns to include in the export.
+
+4. **No format options**: Export is always CSV. PDF, Excel, or JSON formats are not available.
+
+5. **No scheduled exports**: Exports must be triggered manually. No automatic/scheduled exports.
+</Warning>
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Regular Backups" icon="clock-rotate-left">
+    Export all registrations weekly as a backup. Keep exports in a secure location.
+  </Card>
+  
+  <Card title="Verify Before Export" icon="circle-check">
+    Always check the result counter to confirm the number of records being exported.
+  </Card>
+  
+  <Card title="Descriptive Names" icon="file-signature">
+    After downloading, rename files descriptively (e.g., `metepec_sub17_march2026.csv`).
+  </Card>
+  
+  <Card title="Data Privacy" icon="shield-halved">
+    Exported files contain personal information (names, phones). Store securely and follow privacy regulations.
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+### Export Not Downloading
+
+**Solution**: Check browser permissions
+- Ensure pop-ups are not blocked
+- Check browser download settings
+- Try a different browser
+
+### Special Characters Not Displaying
+
+**Solution**: Check file encoding
+- Open CSV in a UTF-8 compatible editor
+- In Excel, use "Get Data" > "From Text/CSV" and specify UTF-8 encoding
+
+### Commas Breaking Columns
+
+**Solution**: Fields should be quoted
+- This is handled automatically by the export function
+- If you see issues, report it as a bug—all fields should be quoted
+
+### Empty Export File
+
+**Solution**: Check active filters
+- Result counter shows "0"? No records match your filters
+- Clear filters and try again
+
+## Future Enhancements
+
+Potential improvements to the export feature:
+
+<AccordionGroup>
+  <Accordion title="Custom Column Selection">
+    Allow users to choose which columns to include in the export.
+    
+    ```typescript
+    interface ExportConfig {
+      columns: ('nombre' | 'edad' | 'telefono' | 'sede' | 'categoria' | 'fecha')[];
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Multiple Format Support">
+    Add support for Excel (.xlsx), PDF, and JSON exports.
+    
+    ```typescript
+    type ExportFormat = 'csv' | 'xlsx' | 'pdf' | 'json';
+    
+    function exportData(rows: RegistrationRow[], format: ExportFormat) {
+      // Implementation...
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Server-Side Export for Large Datasets">
+    For datasets with >10,000 records, generate exports on the server.
+    
+    ```typescript
+    // API route: /api/export
+    export async function POST(request: Request) {
+      const { filters } = await request.json();
+      const csv = await generateLargeCSV(filters);
+      return new Response(csv, {
+        headers: {
+          'Content-Type': 'text/csv',
+          'Content-Disposition': 'attachment; filename="registros.csv"'
+        }
+      });
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Scheduled Exports">
+    Allow administrators to schedule automatic exports.
+    
+    ```typescript
+    interface ScheduledExport {
+      frequency: 'daily' | 'weekly' | 'monthly';
+      filters: FilterConfig;
+      recipients: string[]; // Email addresses
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Filtering and Search" icon="filter" href="/admin/filtering-and-search">
+    Learn advanced filtering to prepare data for export
+  </Card>
+  
+  <Card title="Authentication" icon="lock" href="/admin/authentication">
+    Review authentication and security practices
+  </Card>
+</CardGroup>

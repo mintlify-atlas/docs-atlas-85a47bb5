@@ -1,0 +1,151 @@
+---
+title: 'Deployment Overview'
+description: 'Deploy Toluca Altas Montañas to production environments'
+---
+
+## Introduction
+
+Toluca Altas Montañas is a Next.js application built with the App Router that can be deployed to various hosting platforms. This guide will help you understand the deployment options and requirements for getting your application into production.
+
+## Deployment Options
+
+The application is optimized for deployment on platforms that support Next.js:
+
+### Recommended: Vercel
+
+**Vercel** is the recommended platform for deploying Next.js applications. It offers:
+
+- Zero-configuration deployment
+- Automatic HTTPS and custom domains
+- Built-in CI/CD with GitHub integration
+- Edge network for optimal performance
+- Preview deployments for every push
+- Environment variable management
+
+See the [Vercel Deployment Guide](/deployment/vercel) for detailed instructions.
+
+### Alternative Platforms
+
+The application can also be deployed to:
+
+- **Netlify** - Similar features to Vercel with Next.js support
+- **AWS Amplify** - Full-stack deployment on AWS infrastructure
+- **Docker** - Self-hosted containerized deployment
+- **VPS** - Self-hosted on any Linux server with Node.js
+
+## Prerequisites
+
+Before deploying, ensure you have:
+
+<Steps>
+  <Step title="Supabase Project">
+    A configured Supabase project with:
+    - Database schema created (venues, categories, schedules, player_registrations)
+    - Authentication enabled
+    - Required RLS policies configured
+  </Step>
+  
+  <Step title="Environment Variables">
+    The following environment variables ready:
+    - `NEXT_PUBLIC_SUPABASE_URL`
+    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+    - `SUPABASE_SERVICE_ROLE_KEY` (for API routes)
+  </Step>
+  
+  <Step title="Build Configuration">
+    Verify your project builds successfully locally:
+    ```bash
+    npm run build
+    ```
+  </Step>
+</Steps>
+
+## Build Configuration
+
+The application uses standard Next.js build scripts defined in `package.json`:
+
+```json
+{
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint ."
+  }
+}
+```
+
+### Next.js Configuration
+
+The `next.config.ts` includes:
+
+- **Component caching** enabled for performance
+- **Image optimization** with custom quality settings (60-100)
+- **App Router** architecture
+
+## Production Requirements
+
+### Node.js Version
+
+The application requires:
+- **Node.js 18.x** or higher
+- **npm 9.x** or higher
+
+### Environment Variables
+
+See the [Environment Setup Guide](/deployment/environment-setup) for complete configuration details.
+
+### Database Migrations
+
+Ensure your Supabase database has the required schema. The application expects:
+
+1. **Tables**: `venues`, `categories`, `schedules`, `player_registrations`
+2. **Relationships**: Foreign keys between tables
+3. **Seed data**: Initial venues and categories
+
+Refer to the README.md SQL schema section for the complete database setup.
+
+## Deployment Checklist
+
+Before deploying to production:
+
+- [ ] Database schema is created in Supabase
+- [ ] Seed data (venues, categories) is populated
+- [ ] Environment variables are configured
+- [ ] Application builds successfully (`npm run build`)
+- [ ] Authentication is configured in Supabase
+- [ ] RLS policies are enabled (if required)
+- [ ] Service role key is secured and not exposed to client
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Deploy to Vercel" icon="rocket" href="/deployment/vercel">
+    Step-by-step guide for deploying to Vercel
+  </Card>
+  
+  <Card title="Environment Setup" icon="gear" href="/deployment/environment-setup">
+    Configure environment variables for production
+  </Card>
+</CardGroup>
+
+## Performance Considerations
+
+### Image Optimization
+
+The application uses Next.js Image component with custom quality settings. Ensure your hosting platform supports Next.js image optimization.
+
+### Caching
+
+Component caching is enabled in `next.config.ts` for improved performance. This works best on platforms with edge network support like Vercel.
+
+## Security Notes
+
+<Warning>
+  Never expose `SUPABASE_SERVICE_ROLE_KEY` in client-side code. This key should only be used in API routes and server components.
+</Warning>
+
+The service role key is used in:
+- `/app/api/player-registrations/route.ts` - For inserting player registrations
+
+This key bypasses Row Level Security policies, so keep it secure.

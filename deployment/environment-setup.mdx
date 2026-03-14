@@ -1,0 +1,439 @@
+---
+title: 'Environment Setup'
+description: 'Configure environment variables for production deployment'
+---
+
+## Introduction
+
+Toluca Altas Montañas requires specific environment variables to connect to Supabase for authentication, database operations, and API functionality. This guide explains each variable and how to configure them for different environments.
+
+## Required Environment Variables
+
+### Overview
+
+The application requires three environment variables:
+
+| Variable | Scope | Required | Purpose |
+|----------|-------|----------|----------|
+| `NEXT_PUBLIC_SUPABASE_URL` | Client & Server | Yes | Supabase project URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Client & Server | Yes | Public anonymous key |
+| `SUPABASE_SERVICE_ROLE_KEY` | Server Only | Yes | Service role key for API routes |
+
+## Getting Your Supabase Credentials
+
+<Steps>
+  <Step title="Access Supabase Dashboard">
+    1. Log in to [Supabase](https://supabase.com/dashboard)
+    2. Select your project
+    3. Navigate to **Settings** → **API**
+  </Step>
+  
+  <Step title="Copy Project URL">
+    Under **Project URL**, copy the URL:
+    
+    ```
+    https://your-project-id.supabase.co
+    ```
+    
+    This is your `NEXT_PUBLIC_SUPABASE_URL`
+  </Step>
+  
+  <Step title="Copy Anon Key">
+    Under **Project API keys**, find **anon / public**:
+    
+    ```
+    eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+    ```
+    
+    This is your `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+  </Step>
+  
+  <Step title="Copy Service Role Key">
+    Under **Project API keys**, find **service_role** (click to reveal):
+    
+    <Warning>
+      This key has full database access and bypasses Row Level Security. Never expose it in client-side code.
+    </Warning>
+    
+    ```
+    eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+    ```
+    
+    This is your `SUPABASE_SERVICE_ROLE_KEY`
+  </Step>
+</Steps>
+
+## Environment Variable Details
+
+### NEXT_PUBLIC_SUPABASE_URL
+
+**Type**: Public (Client & Server)  
+**Format**: `https://your-project-id.supabase.co`
+
+**Purpose**: The base URL for your Supabase project. Used by the Supabase client to make API requests.
+
+**Usage**:
+```typescript
+import { createClient } from '@supabase/supabase-js'
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+)
+```
+
+**Why `NEXT_PUBLIC_` prefix?**  
+Next.js exposes variables with this prefix to the browser, allowing client-side components to access Supabase.
+
+---
+
+### NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+**Type**: Public (Client & Server)  
+**Format**: JWT token (long alphanumeric string)
+
+**Purpose**: The anonymous (public) API key for your Supabase project. This key respects Row Level Security (RLS) policies.
+
+**Security**:
+- Safe to expose in client-side code
+- Respects RLS policies
+- Cannot bypass database security rules
+- Rate-limited by Supabase
+
+**Usage**: Used by Supabase client for authenticated and unauthenticated requests that respect RLS.
+
+---
+
+### SUPABASE_SERVICE_ROLE_KEY
+
+**Type**: Secret (Server Only)  
+**Format**: JWT token (long alphanumeric string)
+
+**Purpose**: Administrative API key that bypasses Row Level Security. Used in server-side API routes.
+
+**Security**:
+<Warning>
+  **Critical Security Requirements**:
+  - Never use in client-side code
+  - Never commit to version control
+  - Never expose in `NEXT_PUBLIC_` variables
+  - Only use in API routes or server components
+  - Treat like a database password
+</Warning>
+
+**Usage**: Used in `/app/api/player-registrations/route.ts` for inserting player registrations:
+
+```typescript
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!, // Server-side only
+  { auth: { persistSession: false } }
+)
+```
+
+**Why needed?**  
+The player registration API route needs to insert records without requiring user authentication, but RLS policies might block anonymous inserts. The service role key bypasses these restrictions.
+
+## Configuration by Environment
+
+### Local Development
+
+<Steps>
+  <Step title="Create .env.local file">
+    In your project root, create `.env.local`:
+    
+    ```bash
+    # .env.local
+    NEXT_PUBLIC_SUPABASE_URL=https://your-project-id.supabase.co
+    NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key-here
+    SUPABASE_SERVICE_ROLE_KEY=your-service-role-key-here
+    ```
+  </Step>
+  
+  <Step title="Add to .gitignore">
+    Ensure `.env.local` is in your `.gitignore`:
+    
+    ```bash
+    # .gitignore
+    .env*.local
+    .env
+    ```
+  </Step>
+  
+  <Step title="Start development server">
+    ```bash
+    npm run dev
+    ```
+    
+    The application will load environment variables automatically.
+  </Step>
+</Steps>
+
+### Production (Vercel)
+
+See the [Vercel Deployment Guide](/deployment/vercel) for detailed instructions on adding environment variables in Vercel Dashboard.
+
+**Quick steps**:
+1. Go to Project Settings → Environment Variables
+2. Add all three variables
+3. Set scope to "Production", "Preview", and "Development"
+4. Deploy or redeploy your application
+
+### Production (Other Platforms)
+
+<Tabs>
+  <Tab title="Netlify">
+    1. Go to Site settings → Build & deploy → Environment
+    2. Click **"Add variable"**
+    3. Add each environment variable
+    4. Trigger a new deploy
+  </Tab>
+  
+  <Tab title="AWS Amplify">
+    1. Go to App settings → Environment variables
+    2. Click **"Manage variables"**
+    3. Add each environment variable
+    4. Save and redeploy
+  </Tab>
+  
+  <Tab title="Docker">
+    Pass environment variables when running the container:
+    
+    ```bash
+    docker run -p 3000:3000 \
+      -e NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co \
+      -e NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key \
+      -e SUPABASE_SERVICE_ROLE_KEY=your-service-key \
+      your-image-name
+    ```
+    
+    Or use a `.env` file with docker-compose:
+    
+    ```yaml
+    # docker-compose.yml
+    services:
+      app:
+        image: your-image-name
+        env_file:
+          - .env.production
+        ports:
+          - "3000:3000"
+    ```
+  </Tab>
+  
+  <Tab title="VPS / Self-hosted">
+    Create `.env.production` on your server:
+    
+    ```bash
+    NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+    NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key-here
+    SUPABASE_SERVICE_ROLE_KEY=your-service-role-key-here
+    ```
+    
+    Load it when starting your application:
+    
+    ```bash
+    # Using pm2
+    pm2 start npm --name "toluca" -- start
+    pm2 env set NEXT_PUBLIC_SUPABASE_URL=https://...
+    
+    # Or use dotenv
+    node -r dotenv/config .next/standalone/server.js
+    ```
+  </Tab>
+</Tabs>
+
+## Validation and Testing
+
+### Verify Environment Variables
+
+Create a simple API route to test (for debugging only, remove in production):
+
+```typescript
+// app/api/test-env/route.ts
+import { NextResponse } from 'next/server'
+
+export async function GET() {
+  const hasUrl = !!process.env.NEXT_PUBLIC_SUPABASE_URL
+  const hasAnonKey = !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  const hasServiceKey = !!process.env.SUPABASE_SERVICE_ROLE_KEY
+  
+  return NextResponse.json({
+    url: hasUrl ? 'Set' : 'Missing',
+    anonKey: hasAnonKey ? 'Set' : 'Missing',
+    serviceKey: hasServiceKey ? 'Set' : 'Missing',
+  })
+}
+```
+
+Visit `/api/test-env` to verify all variables are loaded.
+
+<Warning>
+  Delete this test route before deploying to production. Never expose actual key values.
+</Warning>
+
+### Test Supabase Connection
+
+Test that your application can connect to Supabase:
+
+<Steps>
+  <Step title="Test Landing Page">
+    Visit the homepage and try submitting the player registration form.
+    
+    **Success**: Form submits without errors  
+    **Failure**: Check browser console for Supabase errors
+  </Step>
+  
+  <Step title="Test Admin Panel">
+    Try logging into the admin panel.
+    
+    **Success**: Authentication works  
+    **Failure**: Verify `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+  </Step>
+  
+  <Step title="Check API Routes">
+    Submit a player registration and check for errors.
+    
+    **Success**: Registration is saved to database  
+    **Failure**: Verify `SUPABASE_SERVICE_ROLE_KEY` is set correctly
+  </Step>
+</Steps>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Error: Faltan variables del servidor">
+    **Problem**: API route returns "Faltan variables del servidor (URL o SERVICE_ROLE_KEY)"
+    
+    **Cause**: Missing `SUPABASE_SERVICE_ROLE_KEY` environment variable
+    
+    **Solution**:
+    1. Add `SUPABASE_SERVICE_ROLE_KEY` to your environment variables
+    2. Redeploy or restart your development server
+    3. Verify the key is correct in Supabase Dashboard → Settings → API
+  </Accordion>
+  
+  <Accordion title="Supabase client not initialized">
+    **Problem**: Error creating Supabase client
+    
+    **Cause**: Missing or incorrect `NEXT_PUBLIC_SUPABASE_URL` or `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+    
+    **Solution**:
+    1. Check that both variables are set
+    2. Verify the URL format: `https://your-project-id.supabase.co`
+    3. Ensure no extra spaces or quotes around values
+    4. Restart development server or redeploy
+  </Accordion>
+  
+  <Accordion title="Environment variables not updating">
+    **Problem**: Changes to environment variables aren't reflected
+    
+    **Local Development**:
+    - Restart your dev server (`npm run dev`)
+    - Clear `.next` cache: `rm -rf .next`
+    
+    **Production (Vercel)**:
+    - Trigger a redeploy after changing environment variables
+    - Environment variables only update on new deployments
+    
+    **Production (Other)**:
+    - Restart your application/container
+    - Clear any application cache
+  </Accordion>
+  
+  <Accordion title="RLS policy blocking queries">
+    **Problem**: Queries fail with "new row violates row-level security policy"
+    
+    **Cause**: Row Level Security policies blocking operations
+    
+    **Solutions**:
+    
+    **Option 1**: Use service role key (API routes only)
+    ```typescript
+    // Bypasses RLS
+    const supabase = createClient(url, serviceRoleKey)
+    ```
+    
+    **Option 2**: Adjust RLS policies in Supabase
+    ```sql
+    -- Allow anonymous inserts to player_registrations
+    CREATE POLICY "Allow anonymous inserts"
+    ON player_registrations
+    FOR INSERT
+    TO anon
+    WITH CHECK (true);
+    ```
+    
+    **Option 3**: Disable RLS (not recommended for production)
+    ```sql
+    ALTER TABLE player_registrations DISABLE ROW LEVEL SECURITY;
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Security Best Practices
+
+### Do's ✅
+
+- Store service role key in server-only environment variables
+- Use `.env.local` for local development (not committed to git)
+- Rotate keys periodically through Supabase Dashboard
+- Use different Supabase projects for development and production
+- Monitor API usage in Supabase Dashboard
+- Set up RLS policies for production data
+
+### Don'ts ❌
+
+- Never use `NEXT_PUBLIC_` prefix for service role key
+- Never commit `.env` files to version control
+- Never hardcode keys in source code
+- Never expose service role key in client-side code
+- Never share service role key in public channels
+- Never use production keys in development
+
+## Multiple Environments
+
+For teams, consider using separate Supabase projects:
+
+| Environment | Purpose | Configuration |
+|-------------|---------|---------------|
+| **Development** | Local testing | `.env.local` with dev Supabase project |
+| **Preview** | Branch previews | Vercel preview env vars with staging Supabase |
+| **Production** | Live application | Vercel production env vars with prod Supabase |
+
+**Benefits**:
+- Isolate test data from production
+- Safe experimentation without breaking live site
+- Different RLS policies per environment
+- Independent database migrations
+
+## Environment Variable Checklist
+
+Before deploying:
+
+- [ ] All three environment variables are set
+- [ ] Values are copied exactly from Supabase Dashboard
+- [ ] Service role key is only in server-side environment
+- [ ] No extra spaces or quotes around values
+- [ ] Variables are set for correct environment (Production/Preview)
+- [ ] Application builds successfully with these variables
+- [ ] Test registration form works
+- [ ] Test admin authentication works
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Deploy to Vercel" icon="rocket" href="/deployment/vercel">
+    Deploy your application with configured environment variables
+  </Card>
+  
+  <Card title="Deployment Overview" icon="book" href="/deployment/overview">
+    Learn about other deployment options
+  </Card>
+</CardGroup>
+
+## Additional Resources
+
+- [Supabase Environment Variables Guide](https://supabase.com/docs/guides/getting-started/architecture#api-keys)
+- [Next.js Environment Variables](https://nextjs.org/docs/app/building-your-application/configuring/environment-variables)
+- [Vercel Environment Variables](https://vercel.com/docs/concepts/projects/environment-variables)

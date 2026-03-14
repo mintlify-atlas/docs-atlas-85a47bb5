@@ -1,0 +1,343 @@
+---
+title: 'Table Relationships'
+description: 'Understanding the relationships between database tables'
+---
+
+## Relationship Diagram
+
+The Toluca Altas Montañas database uses a relational model where tables are connected through foreign key relationships:
+
+```
+┌─────────────┐
+│   venues    │
+│             │
+│ id (PK)     │◄─────┐
+│ name        │      │
+│ place       │      │
+└─────────────┘      │
+       ▲             │
+       │             │
+       │             │
+       │             │
+┌──────┴──────┐      │
+│             │      │
+│  schedules  │      │
+│             │      │
+│ id (PK)     │      │
+│ venue_id ───┼──────┘
+│ category_id─┼──────┐
+│ weekday     │      │
+│ start_time  │      │
+│ end_time    │      │
+└─────────────┘      │
+                     │
+┌────────────────┐   │
+│   categories   │   │
+│                │   │
+│ id (PK)        │◄──┤
+│ name           │   │
+│ year_from      │   │
+│ year_to        │   │
+│ sort_order     │   │
+└────────────────┘   │
+       ▲             │
+       │             │
+       │             │
+       │             │
+┌──────┴─────────────┴────────┐
+│   player_registrations      │
+│                             │
+│ id (PK)                     │
+│ full_name                   │
+│ birth_date                  │
+│ birth_year (generated)      │
+│ phone                       │
+│ venue_id ───────────────────┼─────┐
+│ category_id ────────────────┘     │
+└───────────────────────────────────┘
+                                    │
+                                    │
+                                    └──► venues.id
+```
+
+## Core Relationships
+
+### 1. player_registrations → venues
+
+**Relationship Type**: Many-to-One
+
+```sql
+player_registrations.venue_id → venues.id
+```
+
+- Each player registration belongs to **one venue**
+- Each venue can have **many player registrations**
+- Constraint: `ON DELETE RESTRICT` (cannot delete venue with existing registrations)
+
+**Purpose**: Tracks which location a player has chosen for training.
+
+**Example Query**:
+
+```sql
+-- Get all registrations for a specific venue
+SELECT pr.*, v.name as venue_name
+FROM player_registrations pr
+JOIN venues v ON pr.venue_id = v.id
+WHERE v.name = 'Río Blanco';
+```
+
+---
+
+### 2. player_registrations → categories
+
+**Relationship Type**: Many-to-One
+
+```sql
+player_registrations.category_id → categories.id
+```
+
+- Each player registration belongs to **one category**
+- Each category can have **many player registrations**
+- Constraint: `ON DELETE RESTRICT` (cannot delete category with existing registrations)
+
+**Purpose**: Assigns players to age-appropriate groups based on their birth year.
+
+**Example Query**:
+
+```sql
+-- Get all registrations for a specific category
+SELECT pr.*, c.name as category_name
+FROM player_registrations pr
+JOIN categories c ON pr.category_id = c.id
+WHERE c.name = 'Infantil';
+```
+
+---
+
+### 3. schedules → venues
+
+**Relationship Type**: Many-to-One
+
+```sql
+schedules.venue_id → venues.id
+```
+
+- Each schedule belongs to **one venue**
+- Each venue can have **many schedules**
+- Constraint: `ON DELETE CASCADE` (deleting a venue removes all its schedules)
+- Indexed: `schedules_by_venue` for fast lookups
+
+**Purpose**: Defines which training times are available at each location.
+
+**Example Query**:
+
+```sql
+-- Get all training schedules for a venue
+SELECT s.*, v.name as venue_name
+FROM schedules s
+JOIN venues v ON s.venue_id = v.id
+WHERE v.name = 'Jalapilla'
+ORDER BY s.weekday, s.start_time;
+```
+
+---
+
+### 4. schedules → categories
+
+**Relationship Type**: Many-to-One
+
+```sql
+schedules.category_id → categories.id
+```
+
+- Each schedule belongs to **one category**
+- Each category can have **many schedules**
+- Constraint: `ON DELETE CASCADE` (deleting a category removes all its schedules)
+- Indexed: `schedules_by_category` for fast lookups
+
+**Purpose**: Specifies which age groups train at specific times.
+
+**Example Query**:
+
+```sql
+-- Get all training schedules for a category
+SELECT s.*, c.name as category_name
+FROM schedules s
+JOIN categories c ON s.category_id = c.id
+WHERE c.name = 'Pony'
+ORDER BY s.weekday, s.start_time;
+```
+
+---
+
+## Composite Relationships
+
+### schedules → (venues + categories)
+
+The `schedules` table creates a **many-to-many relationship** between venues and categories:
+
+- A venue can host multiple categories
+- A category can train at multiple venues
+- The schedule table stores the specific days/times for each combination
+
+**Example Query**:
+
+```sql
+-- Get all venue-category combinations with their schedules
+SELECT 
+  v.name as venue,
+  c.name as category,
+  s.weekday,
+  s.start_time,
+  s.end_time
+FROM schedules s
+JOIN venues v ON s.venue_id = v.id
+JOIN categories c ON s.category_id = c.id
+ORDER BY v.name, c.sort_order, s.weekday;
+```
+
+---
+
+## Delete Behavior
+
+### CASCADE Deletes
+
+When you delete a **venue** or **category**, all associated **schedules** are automatically deleted:
+
+```sql
+-- Deleting a venue will also delete its schedules
+DELETE FROM venues WHERE name = 'Río Blanco';
+-- Automatically deletes all schedules with venue_id = 'Río Blanco' id
+```
+
+<Warning>
+  CASCADE deletes are permanent and cannot be undone. Always verify what will be deleted before executing.
+</Warning>
+
+### RESTRICT Deletes
+
+You **cannot** delete a **venue** or **category** that has associated **player registrations**:
+
+```sql
+-- This will FAIL if there are registrations for this venue
+DELETE FROM venues WHERE name = 'Río Blanco';
+-- Error: update or delete on table "venues" violates foreign key constraint
+```
+
+**Solution**: Delete or reassign all player registrations first:
+
+```sql
+-- Option 1: Delete registrations first
+DELETE FROM player_registrations WHERE venue_id = '...';
+DELETE FROM venues WHERE id = '...';
+
+-- Option 2: Update registrations to different venue
+UPDATE player_registrations 
+SET venue_id = 'new-venue-id'
+WHERE venue_id = 'old-venue-id';
+DELETE FROM venues WHERE id = 'old-venue-id';
+```
+
+---
+
+## Complex Queries
+
+### Get Player Registration with All Related Data
+
+```sql
+SELECT 
+  pr.id,
+  pr.full_name,
+  pr.birth_date,
+  pr.birth_year,
+  pr.phone,
+  v.name as venue_name,
+  v.place as venue_place,
+  c.name as category_name,
+  c.year_from,
+  c.year_to
+FROM player_registrations pr
+JOIN venues v ON pr.venue_id = v.id
+JOIN categories c ON pr.category_id = c.id
+ORDER BY pr.created_at DESC;
+```
+
+### Get Available Training Times for a Player
+
+```sql
+-- Find all schedules matching a player's venue and category
+SELECT 
+  pr.full_name,
+  v.name as venue,
+  c.name as category,
+  s.weekday,
+  s.start_time,
+  s.end_time
+FROM player_registrations pr
+JOIN venues v ON pr.venue_id = v.id
+JOIN categories c ON pr.category_id = c.id
+JOIN schedules s ON s.venue_id = pr.venue_id 
+                 AND s.category_id = pr.category_id
+WHERE pr.id = 'player-uuid-here'
+ORDER BY s.weekday, s.start_time;
+```
+
+### Count Registrations by Venue and Category
+
+```sql
+SELECT 
+  v.name as venue,
+  c.name as category,
+  COUNT(pr.id) as registration_count
+FROM venues v
+CROSS JOIN categories c
+LEFT JOIN player_registrations pr 
+  ON pr.venue_id = v.id AND pr.category_id = c.id
+GROUP BY v.name, c.name, c.sort_order
+ORDER BY v.name, c.sort_order;
+```
+
+---
+
+## Referential Integrity
+
+The database enforces referential integrity through foreign key constraints:
+
+<Check>
+  **Benefits of Referential Integrity**:
+  - Prevents orphaned records (registrations without valid venues/categories)
+  - Ensures data consistency across related tables
+  - Provides clear error messages when constraints are violated
+  - Simplifies application logic by handling consistency at the database level
+</Check>
+
+### Constraint Summary
+
+| Child Table | Parent Table | Constraint | Delete Behavior |
+|-------------|--------------|------------|----------------|
+| schedules | venues | venue_id FK | CASCADE |
+| schedules | categories | category_id FK | CASCADE |
+| player_registrations | venues | venue_id FK | RESTRICT |
+| player_registrations | categories | category_id FK | RESTRICT |
+
+---
+
+## Index Optimization
+
+Foreign key columns are indexed for optimal query performance:
+
+```sql
+-- Schedules indexes
+CREATE INDEX schedules_by_venue ON schedules(venue_id);
+CREATE INDEX schedules_by_category ON schedules(category_id);
+
+-- Player registrations indexes
+CREATE INDEX idx_player_reg_venue ON player_registrations(venue_id);
+CREATE INDEX idx_player_reg_category ON player_registrations(category_id);
+CREATE INDEX idx_player_reg_birth_year ON player_registrations(birth_year);
+```
+
+These indexes dramatically improve performance for:
+- JOIN operations
+- WHERE clause filtering on foreign keys
+- Referential integrity checks during INSERT/UPDATE/DELETE operations

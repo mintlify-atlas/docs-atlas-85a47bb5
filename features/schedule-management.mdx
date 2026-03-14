@@ -1,0 +1,522 @@
+---
+title: 'Schedule Management'
+description: 'Configure training schedules by venue, category, and day of week'
+icon: 'calendar-days'
+---
+
+## Overview
+
+The Schedule Management system (Horarios Admin) allows administrators to define when each category trains at each venue. Schedules are organized by weekday, time range, category, and venue.
+
+<Note>
+  Schedules are venue-specific. Administrators select a venue first, then configure schedules for different categories at that location.
+</Note>
+
+## Component Location
+
+The schedule management interface is implemented in:
+
+```
+~/workspace/source/components/admin/horariosAdmin.tsx
+```
+
+It's accessed from the Admin Dashboard by clicking the "Horarios" navigation item.
+
+## Features
+
+<CardGroup cols={2}>
+  <Card title="Multi-Venue Support" icon="building">
+    Configure different schedules for each training venue
+  </Card>
+  <Card title="Category-Specific" icon="users">
+    Assign schedules per age category
+  </Card>
+  <Card title="Weekday Selection" icon="calendar">
+    Set training days from Monday to Sunday
+  </Card>
+  <Card title="Time Ranges" icon="clock">
+    Define start and end times for each training session
+  </Card>
+  <Card title="Optional Sessions" icon="star">
+    Mark certain training days as optional
+  </Card>
+  <Card title="Notes Support" icon="note-sticky">
+    Add contextual notes to schedule entries
+  </Card>
+</CardGroup>
+
+## Data Model
+
+### Schedule Type
+
+```typescript components/admin/horariosAdmin.tsx
+type Schedule = {
+  id: string;
+  category_id: string;
+  venue_id: string;
+  weekday: number; // 1-7 (Monday-Sunday)
+  start_time: string; // "16:00:00"
+  end_time: string;
+  is_optional: boolean;
+  note: string | null;
+};
+```
+
+### Database Table: `schedules`
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | UUID | Primary key |
+| `category_id` | UUID | Foreign key to categories table |
+| `venue_id` | UUID | Foreign key to venues table |
+| `weekday` | INTEGER | Day of week (1=Monday, 7=Sunday) |
+| `start_time` | TIME | Training start time |
+| `end_time` | TIME | Training end time |
+| `is_optional` | BOOLEAN | Whether this session is optional |
+| `note` | TEXT | Optional notes about the session |
+
+## User Workflow
+
+### Viewing Schedules
+
+<Steps>
+  <Step title="Select Venue">
+    Choose a venue from the dropdown to view its schedules
+  </Step>
+  <Step title="Review by Category">
+    Schedules are grouped by category and sorted by weekday
+  </Step>
+  <Step title="Check Details">
+    Each schedule shows day, time range, optional flag, and notes
+  </Step>
+</Steps>
+
+### Creating a Schedule
+
+<Steps>
+  <Step title="Click Agregar Día">
+    Click the "Agregar día" button in the top right
+  </Step>
+  <Step title="Select Category">
+    Choose which age category this schedule applies to
+  </Step>
+  <Step title="Choose Day">
+    Select the weekday from Lunes (Monday) to Domingo (Sunday)
+  </Step>
+  <Step title="Set Time Range">
+    Enter start time and end time using time pickers
+  </Step>
+  <Step title="Mark Optional (if needed)">
+    Check the "Marcar como opcional" checkbox if applicable
+  </Step>
+  <Step title="Add Notes">
+    Optionally add contextual information
+  </Step>
+  <Step title="Save">
+    Click "Guardar" to create the schedule
+  </Step>
+</Steps>
+
+## Weekday Mapping
+
+The system uses numeric weekday values with Spanish labels:
+
+```typescript components/admin/horariosAdmin.tsx
+const weekdayEs: Record<number, string> = {
+  1: "Lunes",
+  2: "Martes",
+  3: "Miércoles",
+  4: "Jueves",
+  5: "Viernes",
+  6: "Sábado",
+  7: "Domingo",
+};
+```
+
+## Time Formatting
+
+Times are converted between input format (HH:mm) and database format (HH:mm:ss):
+
+```typescript components/admin/horariosAdmin.tsx
+function tToInput(t: string) {
+  return (t ?? "").slice(0, 5); // "16:00:00" → "16:00"
+}
+
+function inputToDb(t: string) {
+  return t.length === 5 ? `${t}:00` : t; // "16:00" → "16:00:00"
+}
+```
+
+## Component Props
+
+The `HorariosAdmin` component receives styling classes from the parent dashboard:
+
+```tsx components/admin/horariosAdmin.tsx
+export default function HorariosAdmin({
+  panelClass,
+  softClass,
+  inputClass,
+  selectClass,
+}: {
+  panelClass: string;
+  softClass: string;
+  inputClass: string;
+  selectClass: string;
+})
+```
+
+## State Management
+
+<Tabs>
+  <Tab title="Data State">
+    ```tsx
+    const [venues, setVenues] = useState<Venue[]>([]);
+    const [categories, setCategories] = useState<Category[]>([]);
+    const [schedules, setSchedules] = useState<Schedule[]>([]);
+    const [venueSel, setVenueSel] = useState<string>("");
+    ```
+  </Tab>
+  <Tab title="UI State">
+    ```tsx
+    const [loading, setLoading] = useState(true);
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [open, setOpen] = useState(false);
+    const [editing, setEditing] = useState<Schedule | null>(null);
+    ```
+  </Tab>
+  <Tab title="Form State">
+    ```tsx
+    const [form, setForm] = useState({
+      category_id: "",
+      weekday: 1,
+      start_time: "16:00",
+      end_time: "18:00",
+      is_optional: false,
+      note: "",
+    });
+    ```
+  </Tab>
+</Tabs>
+
+## Data Loading
+
+The component loads three datasets in parallel:
+
+```typescript components/admin/horariosAdmin.tsx
+const load = async () => {
+  setLoading(true);
+  setError(null);
+
+  const [vRes, cRes, sRes] = await Promise.all([
+    supabase.from("venues").select("id, name, place").order("name"),
+    supabase
+      .from("categories")
+      .select("id, name, year_from, year_to, sort_order")
+      .order("sort_order", { ascending: true }),
+    supabase
+      .from("schedules")
+      .select(
+        "id, category_id, venue_id, weekday, start_time, end_time, is_optional, note"
+      )
+      .order("weekday", { ascending: true })
+      .order("start_time", { ascending: true }),
+  ]);
+
+  // Process results...
+};
+```
+
+## Schedule Grouping
+
+Schedules are grouped by category for organized display:
+
+```typescript components/admin/horariosAdmin.tsx
+const grouped = useMemo(() => {
+  const list = schedules.filter((s) => s.venue_id === venueSel);
+
+  // Group by category
+  const map = new Map<string, Schedule[]>();
+  for (const r of list) {
+    const arr = map.get(r.category_id) ?? [];
+    arr.push(r);
+    map.set(r.category_id, arr);
+  }
+
+  const entries = Array.from(map.entries()).sort((a, b) => {
+    const sa = catById.get(a[0])?.sort_order ?? 9999;
+    const sb = catById.get(b[0])?.sort_order ?? 9999;
+    return sa - sb;
+  });
+
+  return entries.map(([category_id, rows]) => ({
+    category_id,
+    rows: rows.slice().sort((x, y) => x.weekday - y.weekday),
+  }));
+}, [schedules, venueSel, catById]);
+```
+
+## CRUD Operations
+
+### Create
+
+```typescript components/admin/horariosAdmin.tsx
+const payload = {
+  venue_id: venueSel,
+  category_id: form.category_id,
+  weekday: Number(form.weekday),
+  start_time: inputToDb(form.start_time),
+  end_time: inputToDb(form.end_time),
+  is_optional: !!form.is_optional,
+  note: form.note.trim() ? form.note.trim() : null,
+};
+
+const { error } = await supabase.from("schedules").insert(payload);
+```
+
+### Update
+
+```typescript components/admin/horariosAdmin.tsx
+const { error } = await supabase
+  .from("schedules")
+  .update(payload)
+  .eq("id", editing.id);
+```
+
+### Delete
+
+```typescript components/admin/horariosAdmin.tsx
+const remove = async (r: Schedule) => {
+  const ok = confirm("¿Eliminar este día/horario? No se puede deshacer.");
+  if (!ok) return;
+  setBusy(true);
+  setError(null);
+  const { error } = await supabase.from("schedules").delete().eq("id", r.id);
+  if (error) setError(error.message);
+  else await load();
+  setBusy(false);
+};
+```
+
+## Form Validation
+
+```typescript components/admin/horariosAdmin.tsx
+const save = async () => {
+  if (!venueSel) return;
+  if (!form.category_id) return setError("Selecciona una categoría.");
+  if (!form.start_time || !form.end_time)
+    return setError("Define hora inicio y fin.");
+
+  // Proceed with save...
+};
+```
+
+## UI Layout
+
+### Venue Selector
+
+At the top of the view, administrators select which venue to configure:
+
+```tsx components/admin/horariosAdmin.tsx
+<select
+  value={venueSel}
+  onChange={(e) => setVenueSel(e.target.value)}
+  className={cn(selectClass, "mt-2")}
+>
+  {venues.map((v) => (
+    <option key={v.id} value={v.id} className="bg-zinc-950">
+      {v.name}
+    </option>
+  ))}
+</select>
+```
+
+### Category Groups
+
+Schedules are displayed grouped by category:
+
+```tsx components/admin/horariosAdmin.tsx
+{grouped.map((g) => {
+  const cat = catById.get(g.category_id);
+  return (
+    <div key={g.category_id} className="px-4 sm:px-6 py-5">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="font-extrabold text-white">
+            {cat?.name ?? "Categoría"}
+          </div>
+          <div className="text-sm text-white/60">
+            {cat ? `${cat.year_from}–${cat.year_to}` : "—"}
+          </div>
+        </div>
+        <span className="text-xs px-3 py-1 rounded-full font-bold bg-black/35 border border-white/10 text-white/60">
+          {g.rows.length} día(s)
+        </span>
+      </div>
+
+      <div className="mt-4 space-y-2">
+        {g.rows.map((r) => (
+          // Individual schedule card
+        ))}
+      </div>
+    </div>
+  );
+})}
+```
+
+### Schedule Cards
+
+Each schedule appears as a card with day, time, and actions:
+
+```tsx components/admin/horariosAdmin.tsx
+<div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+  <div className="text-sm">
+    <div className="font-extrabold">
+      {weekdayEs[r.weekday] ?? `Día ${r.weekday}`}{" "}
+      <span className="text-white/60 font-semibold">
+        {tToInput(r.start_time)}–{tToInput(r.end_time)}
+      </span>
+    </div>
+    {r.note ? (
+      <div className="text-white/60">{r.note}</div>
+    ) : null}
+    {r.is_optional ? (
+      <div className="text-[#FF2A4D] font-extrabold text-xs mt-1">
+        Opcional
+      </div>
+    ) : null}
+  </div>
+
+  <div className="flex gap-2">
+    <button onClick={() => openEdit(r)} disabled={busy}>
+      <Pencil size={16} />
+      Editar
+    </button>
+    <button onClick={() => remove(r)} disabled={busy}>
+      <Trash2 size={16} />
+      Eliminar
+    </button>
+  </div>
+</div>
+```
+
+## Modal Form
+
+The create/edit modal includes:
+
+<CardGroup cols={3}>
+  <Card title="Category Selector" icon="tags">
+    Dropdown with all categories
+  </Card>
+  <Card title="Day Selector" icon="calendar">
+    Dropdown with weekdays in Spanish
+  </Card>
+  <Card title="Time Pickers" icon="clock">
+    HTML5 time inputs for start and end
+  </Card>
+  <Card title="Optional Checkbox" icon="check-square">
+    Toggle for marking session as optional
+  </Card>
+  <Card title="Notes Field" icon="note-sticky">
+    Text input for contextual information
+  </Card>
+  <Card title="Action Buttons" icon="floppy-disk">
+    Save and Cancel buttons
+  </Card>
+</CardGroup>
+
+## Example Schedule Entry
+
+```json
+{
+  "id": "660e8400-e29b-41d4-a716-446655440000",
+  "category_id": "770e8400-e29b-41d4-a716-446655440000",
+  "venue_id": "550e8400-e29b-41d4-a716-446655440000",
+  "weekday": 1,
+  "start_time": "16:00:00",
+  "end_time": "18:00:00",
+  "is_optional": false,
+  "note": "Entrenamiento técnico-táctico"
+}
+```
+
+## Empty States
+
+### No Schedules for Venue
+
+```tsx components/admin/horariosAdmin.tsx
+grouped.length === 0 ? (
+  <div className="px-4 sm:px-6 py-10 text-white/60">
+    No hay horarios para esta sede.
+  </div>
+) : (
+  // Schedule display
+)
+```
+
+### Loading State
+
+```tsx components/admin/horariosAdmin.tsx
+loading ? (
+  <div className="px-4 sm:px-6 py-10 text-white/60">Cargando…</div>
+) : (
+  // Content
+)
+```
+
+## Integration with Other Features
+
+### Public Schedule Display
+
+While not implemented in the provided code, schedules can be queried and displayed on the public website using:
+
+```typescript
+const { data: schedules } = await supabase
+  .from("schedules")
+  .select(`
+    *,
+    venue:venues(name, place),
+    category:categories(name, year_from, year_to)
+  `)
+  .eq("venue_id", selectedVenueId)
+  .order("weekday")
+  .order("start_time");
+```
+
+### Player Communication
+
+Schedule information can be included in WhatsApp messages to registered players based on their category and venue.
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Consistent Time Blocks" icon="clock">
+    Use standard 2-hour training blocks (e.g., 16:00-18:00)
+  </Card>
+  <Card title="Avoid Overlaps" icon="ban">
+    Ensure schedules for the same venue don't overlap
+  </Card>
+  <Card title="Use Notes Wisely" icon="lightbulb">
+    Add notes for special circumstances or requirements
+  </Card>
+  <Card title="Mark Optional Sessions" icon="circle-question">
+    Clearly indicate which training days are optional
+  </Card>
+</CardGroup>
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="Admin Dashboard" icon="gauge" href="/features/admin-dashboard">
+    Access schedule management from the dashboard
+  </Card>
+  <Card title="Venue Management" icon="map-pin" href="/features/venue-management">
+    Schedules are linked to venues
+  </Card>
+  <Card title="Category Management" icon="tags" href="/features/category-management">
+    Schedules are assigned to categories
+  </Card>
+  <Card title="Database Schema" icon="database" href="/database/tables">
+    Complete schedules table structure
+  </Card>
+</CardGroup>

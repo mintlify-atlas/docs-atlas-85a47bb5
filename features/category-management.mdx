@@ -1,0 +1,440 @@
+---
+title: 'Category Management'
+description: 'Configure age-based categories for automatic player assignment'
+icon: 'tags'
+---
+
+## Overview
+
+The Category Management system allows administrators to define age-based categories that automatically determine which group a player belongs to based on their birth year. Categories are central to the registration and scheduling systems.
+
+<Note>
+  Categories use year ranges (year_from and year_to) to automatically assign players during registration. The system finds the matching category based on the player's birth year.
+</Note>
+
+## Data Model
+
+### Category Type
+
+```typescript
+type Category = {
+  id: string;
+  name: string;
+  year_from: number;
+  year_to: number;
+  sort_order: number | null;
+};
+```
+
+### Database Table: `categories`
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | UUID | Primary key |
+| `name` | TEXT | Category name (e.g., "Sub-10", "Sub-12") |
+| `year_from` | INTEGER | Starting birth year for the category |
+| `year_to` | INTEGER | Ending birth year for the category |
+| `sort_order` | INTEGER | Display order (null allowed) |
+
+## Category Assignment Logic
+
+The automatic category assignment uses a range-matching algorithm:
+
+```typescript components/player-registration-form.tsx
+function findCategory(birthYear: number, cats: Category[]) {
+  return cats.find((c) => {
+    const min = Math.min(c.year_from, c.year_to);
+    const max = Math.max(c.year_from, c.year_to);
+    return birthYear >= min && birthYear <= max;
+  });
+}
+```
+
+### How It Works
+
+<Steps>
+  <Step title="Player Enters Birth Date">
+    User selects their birth date on the registration form
+  </Step>
+  <Step title="Extract Birth Year">
+    System extracts the year: `new Date(birthDate).getFullYear()`
+  </Step>
+  <Step title="Find Matching Category">
+    System searches for a category where birth year falls within the range
+  </Step>
+  <Step title="Display Category">
+    Detected category name is shown in real-time on the form
+  </Step>
+</Steps>
+
+## Example Categories
+
+Here are typical categories for a youth soccer academy:
+
+<Tabs>
+  <Tab title="Sub-8">
+    ```json
+    {
+      "id": "category-sub8-uuid",
+      "name": "Sub-8",
+      "year_from": 2018,
+      "year_to": 2019,
+      "sort_order": 1
+    }
+    ```
+    Players born 2018-2019 (ages 6-7)
+  </Tab>
+  <Tab title="Sub-10">
+    ```json
+    {
+      "id": "category-sub10-uuid",
+      "name": "Sub-10",
+      "year_from": 2016,
+      "year_to": 2017,
+      "sort_order": 2
+    }
+    ```
+    Players born 2016-2017 (ages 8-9)
+  </Tab>
+  <Tab title="Sub-12">
+    ```json
+    {
+      "id": "category-sub12-uuid",
+      "name": "Sub-12",
+      "year_from": 2014,
+      "year_to": 2015,
+      "sort_order": 3
+    }
+    ```
+    Players born 2014-2015 (ages 10-11)
+  </Tab>
+  <Tab title="Sub-15">
+    ```json
+    {
+      "id": "category-sub15-uuid",
+      "name": "Sub-15",
+      "year_from": 2011,
+      "year_to": 2013,
+      "sort_order": 4
+    }
+    ```
+    Players born 2011-2013 (ages 12-14)
+  </Tab>
+</Tabs>
+
+## Category Management UI
+
+<Warning>
+  The admin dashboard currently shows a placeholder for category management. Based on the pattern from Sedes and Horarios, a full CRUD interface would follow the same design.
+</Warning>
+
+Current placeholder in dashboard:
+
+```tsx components/admin/dashboard.tsx
+{active === "categorias" && (
+  <section className="mx-auto max-w-7xl px-6 md:px-10 py-6">
+    <div className={cn(panel, "p-6 text-white/70")}>
+      Aquí irá el CRUD de categorías (si quieres te lo armo igual que
+      sedes/horarios).
+    </div>
+  </section>
+)}
+```
+
+## Recommended Category Admin Features
+
+Based on the patterns from venue and schedule management, a complete category admin would include:
+
+<CardGroup cols={2}>
+  <Card title="Create Categories" icon="plus">
+    Add new age categories with name and year range
+  </Card>
+  <Card title="Edit Categories" icon="pencil">
+    Update category names, year ranges, and sort order
+  </Card>
+  <Card title="Delete Categories" icon="trash">
+    Remove categories (with warning about dependent registrations)
+  </Card>
+  <Card title="Reorder Categories" icon="arrows-up-down">
+    Adjust sort_order for display sequence
+  </Card>
+</CardGroup>
+
+## Data Loading in Components
+
+### Player Registration Form
+
+Categories are loaded on mount for immediate category detection:
+
+```tsx components/player-registration-form.tsx
+const [cats, setCats] = React.useState<Category[]>([]);
+
+React.useEffect(() => {
+  const run = async () => {
+    const supabase = createClient();
+
+    const cRes = await supabase
+      .from("categories")
+      .select("id, name, year_from, year_to, sort_order")
+      .order("sort_order", { ascending: true });
+
+    if (cRes.error) {
+      setError(cRes.error.message);
+    } else {
+      setCats((cRes.data ?? []) as Category[]);
+    }
+  };
+
+  run();
+}, []);
+```
+
+### Admin Dashboard
+
+Categories are loaded for filtering registrations:
+
+```tsx components/admin/dashboard.tsx
+const { data, error } = await supabase
+  .from("player_registrations")
+  .select(
+    `
+    id,
+    full_name,
+    birth_date,
+    phone,
+    created_at,
+    venue:venues ( id, name, place ),
+    category:categories ( id, name, year_from, year_to, sort_order )
+  `
+  )
+  .order("created_at", { ascending: false });
+```
+
+### Schedule Management
+
+Categories are loaded for assigning schedules:
+
+```tsx components/admin/horariosAdmin.tsx
+const cRes = await supabase
+  .from("categories")
+  .select("id, name, year_from, year_to, sort_order")
+  .order("sort_order", { ascending: true });
+```
+
+## Sort Order
+
+The `sort_order` field controls display sequence:
+
+- Lower numbers appear first
+- Null values appear last
+- Used in dropdowns and grouped displays
+
+```typescript
+const entries = Array.from(map.entries()).sort((a, b) => {
+  const sa = catById.get(a[0])?.sort_order ?? 9999;
+  const sb = catById.get(b[0])?.sort_order ?? 9999;
+  return sa - sb;
+});
+```
+
+## Integration Points
+
+### Player Registration
+
+Categories are displayed in real-time as players enter their birth date:
+
+```tsx components/player-registration-form.tsx
+const birthYear = birthDate ? new Date(birthDate).getFullYear() : null;
+const category = birthYear ? findCategory(birthYear, cats) : null;
+
+<div className="rounded-2xl border border-white/10 bg-black/25 p-4">
+  <p className="text-xs font-extrabold tracking-widest text-white/70">
+    CATEGORÍA DETECTADA
+  </p>
+  <p className="mt-2 text-lg font-extrabold text-white">
+    {birthYear
+      ? category
+        ? category.name
+        : "No encontrada"
+      : "Selecciona tu fecha"}
+  </p>
+  <p className="mt-1 text-sm text-white/70">
+    {birthYear ? `Año: ${birthYear}` : "—"}
+  </p>
+</div>
+```
+
+### API Submission
+
+The detected category ID is sent to the API:
+
+```tsx components/player-registration-form.tsx
+const res = await fetch("/api/player-registrations", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    full_name: cleanName,
+    birth_date: birthDate,
+    phone: cleanPhone,
+    venue_id: venueId,
+    category_id: category.id, // Auto-detected category
+  }),
+});
+```
+
+### Admin Dashboard Display
+
+Categories appear as badges in the registration table:
+
+```tsx components/admin/dashboard.tsx
+<span className="inline-flex items-center rounded-full px-3 py-1 text-xs font-extrabold bg-[#D50032] text-white shadow-[0_12px_24px_rgba(213,0,50,.14)]">
+  {cat}
+</span>
+```
+
+### Schedule Assignment
+
+Schedules are assigned to specific categories:
+
+```tsx components/admin/horariosAdmin.tsx
+<select
+  value={form.category_id}
+  onChange={(e) =>
+    setForm((p) => ({ ...p, category_id: e.target.value }))
+  }
+>
+  {categories.map((c) => (
+    <option key={c.id} value={c.id}>
+      {c.name} ({c.year_from}-{c.year_to})
+    </option>
+  ))}
+</select>
+```
+
+## Year Range Validation
+
+<Warning>
+  Ensure year ranges don't overlap between categories to avoid ambiguous assignments.
+</Warning>
+
+### Good Practice
+
+```json
+[
+  {"name": "Sub-10", "year_from": 2016, "year_to": 2017},
+  {"name": "Sub-12", "year_from": 2014, "year_to": 2015}
+]
+```
+
+No overlap - clear boundaries between categories.
+
+### Bad Practice
+
+```json
+[
+  {"name": "Sub-10", "year_from": 2015, "year_to": 2017},
+  {"name": "Sub-12", "year_from": 2014, "year_to": 2016}
+]
+```
+
+Years 2015-2016 overlap - ambiguous assignment.
+
+## Handling Missing Categories
+
+If no category matches the birth year:
+
+```tsx components/player-registration-form.tsx
+if (!category) return setError("No se encontró categoría para esa fecha.");
+```
+
+The form displays "No encontrada" and prevents submission.
+
+## Annual Category Updates
+
+Categories should be updated annually to reflect age progression:
+
+<Steps>
+  <Step title="Review Current Year">
+    Check which birth years are now eligible for each category
+  </Step>
+  <Step title="Update Year Ranges">
+    Adjust year_from and year_to for all categories
+  </Step>
+  <Step title="Test Registration">
+    Verify automatic assignment works with new ranges
+  </Step>
+  <Step title="Communicate Changes">
+    Inform coaches and parents about category changes
+  </Step>
+</Steps>
+
+## Database Relationships
+
+Categories have foreign key relationships with:
+
+<CardGroup cols={2}>
+  <Card title="player_registrations" icon="user">
+    Each registration references a category
+  </Card>
+  <Card title="schedules" icon="calendar">
+    Each schedule is assigned to a category
+  </Card>
+</CardGroup>
+
+### Example Query with Relationships
+
+```sql
+SELECT 
+  c.name as category_name,
+  COUNT(DISTINCT pr.id) as player_count,
+  COUNT(DISTINCT s.id) as schedule_count
+FROM categories c
+LEFT JOIN player_registrations pr ON pr.category_id = c.id
+LEFT JOIN schedules s ON s.category_id = c.id
+GROUP BY c.id, c.name, c.sort_order
+ORDER BY c.sort_order;
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Clear Naming" icon="font">
+    Use standard formats like "Sub-10", "Sub-12" for consistency
+  </Card>
+  <Card title="No Gaps" icon="grip-lines">
+    Ensure year ranges cover all possible player ages
+  </Card>
+  <Card title="No Overlaps" icon="ban">
+    Each birth year should match exactly one category
+  </Card>
+  <Card title="Logical Order" icon="list-ol">
+    Set sort_order from youngest (1) to oldest
+  </Card>
+</CardGroup>
+
+## Future Enhancements
+
+Potential improvements to category management:
+
+- Visual year range picker with overlap detection
+- Bulk category creation wizard
+- Historical category archives
+- Category-based analytics dashboard
+- Automatic annual rollover system
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="Player Registration" icon="user-plus" href="/features/player-registration">
+    See how categories are auto-assigned during registration
+  </Card>
+  <Card title="Schedule Management" icon="calendar" href="/features/schedule-management">
+    Schedules are organized by category
+  </Card>
+  <Card title="Admin Dashboard" icon="gauge" href="/features/admin-dashboard">
+    Filter registrations by category
+  </Card>
+  <Card title="Database Schema" icon="database" href="/database/tables">
+    Complete categories table structure
+  </Card>
+</CardGroup>

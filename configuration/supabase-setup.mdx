@@ -1,0 +1,279 @@
+---
+title: Supabase Setup
+description: Complete guide to setting up Supabase for Toluca Altas Montañas
+---
+
+## Overview
+
+Toluca Altas Montañas uses Supabase as its backend platform, providing:
+
+- **PostgreSQL Database** for storing venues, categories, schedules, and player registrations
+- **Authentication** for admin panel access
+- **Row Level Security (RLS)** for data protection (optional)
+- **Real-time capabilities** for data synchronization
+
+## Initial Setup
+
+### 1. Create a Supabase Project
+
+1. Go to [supabase.com](https://supabase.com)
+2. Sign in or create an account
+3. Click "New Project"
+4. Choose your organization
+5. Configure your project:
+   - **Name:** Toluca Altas Montañas (or your preferred name)
+   - **Database Password:** Choose a strong password and save it securely
+   - **Region:** Select the closest region to your users
+   - **Pricing Plan:** Free tier is sufficient for getting started
+6. Click "Create new project"
+7. Wait for the project to be provisioned (1-2 minutes)
+
+### 2. Get API Credentials
+
+Once your project is ready:
+
+1. Navigate to **Settings → API**
+2. Copy the following values:
+   - **Project URL** → Use for `NEXT_PUBLIC_SUPABASE_URL`
+   - **anon/public key** → Use for `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
+   - **service_role key** → Use for `SUPABASE_SERVICE_ROLE_KEY`
+
+3. Add these to your `.env.local` file as described in [Environment Variables](/configuration/environment-variables)
+
+<Warning>
+  Keep your service_role key secret! It bypasses all security policies and should only be used server-side.
+</Warning>
+
+### 3. Configure Database
+
+Navigate to the **SQL Editor** in your Supabase dashboard to set up the database schema.
+
+## Database Schema Setup
+
+### Step 1: Run Base Schema
+
+Copy and execute the complete schema from the [Database Schema](/configuration/database-schema) page. This creates:
+
+- `venues` table for training locations
+- `categories` table for age-based player categories
+- `schedules` table for training schedules
+- `player_registrations` table for player sign-ups
+
+<Note>
+  The schema includes automatic timestamp updates using triggers and generated columns for birth year calculation.
+</Note>
+
+### Step 2: Seed Initial Data
+
+After creating the schema, run the seed script to populate:
+
+- **Venues:** Río Blanco and Jalapilla locations
+- **Categories:** 7 age-based categories (Dientes de Leche through Juvenil)
+- **Schedules:** Training times for each venue and category
+
+See the complete seed script in [Database Schema](/configuration/database-schema#seed-data).
+
+## Client Configuration
+
+The application uses Supabase SSR (Server-Side Rendering) clients for optimal Next.js integration.
+
+### Server-Side Client
+
+Used in Server Components and API Routes (`lib/supabase/server.ts:9-34`):
+
+```typescript
+import { createServerClient } from "@supabase/ssr";
+import { cookies } from "next/headers";
+
+export async function createClient() {
+  const cookieStore = await cookies();
+
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll();
+        },
+        setAll(cookiesToSet) {
+          try {
+            cookiesToSet.forEach(({ name, value, options }) =>
+              cookieStore.set(name, value, options),
+            );
+          } catch {
+            // Ignore errors from Server Components
+          }
+        },
+      },
+    },
+  );
+}
+```
+
+<Note>
+  Don't store the server client in a global variable. Always create a new client within each function, especially when using serverless/edge compute.
+</Note>
+
+### Browser Client
+
+Used in Client Components (`lib/supabase/client.ts:3-8`):
+
+```typescript
+import { createBrowserClient } from "@supabase/ssr";
+
+export function createClient() {
+  return createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+  );
+}
+```
+
+### Service Role Client
+
+Used for operations that bypass RLS (`app/api/player-registrations/route.ts:16`):
+
+```typescript
+import { createClient } from "@supabase/supabase-js";
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  { auth: { persistSession: false } }
+);
+```
+
+<Warning>
+  The service role client is only used in API routes, never in client-side code. It allows public player registration without requiring authentication.
+</Warning>
+
+## Authentication Setup
+
+### Enable Email Authentication
+
+1. Navigate to **Authentication → Providers** in Supabase
+2. Ensure **Email** is enabled
+3. Configure email templates (optional) for a branded experience
+
+### Create Admin User
+
+1. Go to **Authentication → Users**
+2. Click "Add User"
+3. Enter email and password for your admin account
+4. Click "Create User"
+
+This user can now log in to the admin panel.
+
+### Optional: Configure Email Provider
+
+For production, configure a custom SMTP provider:
+
+1. Go to **Settings → Auth**
+2. Scroll to **SMTP Settings**
+3. Configure your email service (SendGrid, AWS SES, etc.)
+
+## Row Level Security (Optional)
+
+While RLS is optional for this project, you can enable it for additional security.
+
+### Enable RLS on Tables
+
+```sql
+-- Enable RLS
+ALTER TABLE player_registrations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE venues ENABLE ROW LEVEL SECURITY;
+ALTER TABLE categories ENABLE ROW LEVEL SECURITY;
+ALTER TABLE schedules ENABLE ROW LEVEL SECURITY;
+
+-- Allow public reads
+CREATE POLICY "Public read access"
+  ON player_registrations FOR SELECT
+  USING (true);
+
+CREATE POLICY "Public read access"
+  ON venues FOR SELECT
+  USING (true);
+
+CREATE POLICY "Public read access"
+  ON categories FOR SELECT
+  USING (true);
+
+CREATE POLICY "Public read access"
+  ON schedules FOR SELECT
+  USING (true);
+
+-- Service role bypasses RLS automatically
+```
+
+<Note>
+  The application uses the service role key for player registrations, which bypasses RLS. This allows public registration without authentication.
+</Note>
+
+## Verification
+
+After setup, verify everything is working:
+
+### 1. Check Tables
+
+Go to **Table Editor** and verify all four tables exist:
+- `venues`
+- `categories`
+- `schedules`
+- `player_registrations`
+
+### 2. Test Connection
+
+Run your development server:
+
+```bash
+npm run dev
+```
+
+Visit `http://localhost:3000` and try registering a player. If successful, check the `player_registrations` table in Supabase.
+
+### 3. Verify Data Relationships
+
+In the Table Editor:
+1. Click on `player_registrations`
+2. Expand a row to see related data
+3. Verify `venue_id` and `category_id` link to correct records
+
+## Troubleshooting
+
+### "Project not found" Error
+
+Verify your `NEXT_PUBLIC_SUPABASE_URL` matches your project URL exactly.
+
+### "Invalid API key" Error
+
+Regenerate your API keys:
+1. Go to **Settings → API**
+2. Click "Reveal" next to the key
+3. Copy the fresh key to your `.env.local`
+4. Restart your development server
+
+### Database Connection Issues
+
+Check that:
+- Your project is not paused (free tier projects pause after 1 week of inactivity)
+- Your database password is correct
+- You're not exceeding your plan limits
+
+### Migration Errors
+
+If the schema migration fails:
+1. Check for syntax errors in the SQL
+2. Verify you're running it in the correct order (schema before seeds)
+3. Drop tables and retry if needed (see schema for drop commands)
+
+## Next Steps
+
+With Supabase configured, you can:
+
+- Start the development server and test player registration
+- Access the admin panel to manage data
+- Configure venues and schedules through the admin interface
+- Export player data to CSV
+
+Refer to the [Database Schema](/configuration/database-schema) documentation for detailed information about the data model.

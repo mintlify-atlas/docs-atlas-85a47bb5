@@ -1,0 +1,397 @@
+---
+title: 'Admin Dashboard'
+description: 'Comprehensive admin panel for managing registrations, venues, schedules, and categories'
+icon: 'gauge'
+---
+
+## Overview
+
+The Admin Dashboard is the central command center for Toluca Altas Montañas administrators. It provides a unified interface to view player registrations, manage venues, configure schedules, and organize categories.
+
+<Note>
+  Access to the dashboard requires authentication. Unauthenticated users are automatically redirected to `/auth/login`.
+</Note>
+
+## Dashboard Access
+
+The dashboard is protected by authentication middleware:
+
+```tsx app/protected/page.tsx
+async function ProtectedGate() {
+  const supabase = await createClient();
+  const { data, error } = await supabase.auth.getClaims();
+
+  if (error || !data?.claims) {
+    redirect("/auth/login");
+  }
+
+  return <Dashboard />;
+}
+```
+
+## Dashboard Views
+
+The dashboard consists of four main views accessible via a sidebar navigation:
+
+<CardGroup cols={2}>
+  <Card title="Registros" icon="users">
+    View, filter, and export player registrations
+  </Card>
+  <Card title="Horarios" icon="calendar-days">
+    Manage training schedules by venue and category
+  </Card>
+  <Card title="Sedes" icon="map-pin">
+    Add, edit, and delete training venues
+  </Card>
+  <Card title="Categorías" icon="tags">
+    Configure age categories and year ranges
+  </Card>
+</CardGroup>
+
+## Navigation System
+
+### Desktop Sidebar
+
+On desktop (lg breakpoint and above), a fixed sidebar displays:
+- Toluca logo and branding
+- Navigation buttons for each view
+- Admin session information
+- Logout button
+
+```tsx components/admin/dashboard.tsx
+function Nav({
+  active,
+  onChange,
+}: {
+  active: "registros" | "horarios" | "sedes" | "categorias";
+  onChange: (v: "registros" | "horarios" | "sedes" | "categorias") => void;
+}) {
+  return (
+    <nav className="space-y-2">
+      <button
+        onClick={() => onChange("registros")}
+        className={cn(item, active === "registros" ? activeItem : idleItem)}
+      >
+        <Users size={18} />
+        Registros
+      </button>
+      {/* More navigation buttons */}
+    </nav>
+  );
+}
+```
+
+### Mobile Drawer
+
+On mobile devices, navigation is accessed via a hamburger menu that opens a slide-out drawer.
+
+## Registrations View
+
+### Key Performance Indicators (KPIs)
+
+The dashboard displays four main metrics:
+
+<Tabs>
+  <Tab title="Total Registrations">
+    Total number of player registrations across all venues and categories.
+  </Tab>
+  <Tab title="Last 30 Days">
+    Number of new registrations in the past 30 days to track recent activity.
+  </Tab>
+  <Tab title="Venues Count">
+    Total number of active training venues.
+  </Tab>
+  <Tab title="Categories Count">
+    Number of configured age categories.
+  </Tab>
+</Tabs>
+
+```tsx components/admin/dashboard.tsx
+const last30 = safe.filter((r) => {
+  const d = new Date(r.created_at);
+  if (Number.isNaN(d.getTime())) return false;
+  const diff = now.getTime() - d.getTime();
+  return diff >= 0 && diff <= 30 * 24 * 60 * 60 * 1000;
+}).length;
+```
+
+### Filtering System
+
+Admins can filter registrations by:
+
+<CardGroup cols={3}>
+  <Card title="Search" icon="magnifying-glass">
+    Search by name, phone, venue, or category
+  </Card>
+  <Card title="Venue" icon="map-pin">
+    Filter by specific training venue
+  </Card>
+  <Card title="Category" icon="tags">
+    Filter by age category
+  </Card>
+</CardGroup>
+
+```tsx components/admin/dashboard.tsx
+if (sedeSel !== "Todas") {
+  filtrados = filtrados.filter(
+    (r) => normalize(r.venue?.name, "Sin sede") === sedeSel
+  );
+}
+
+if (catSel !== "Todas") {
+  filtrados = filtrados.filter(
+    (r) => normalize(r.category?.name, "Sin categoría") === catSel
+  );
+}
+
+if (q.trim()) {
+  const needle = q.trim().toLowerCase();
+  filtrados = filtrados.filter((r) => {
+    const nombre = String(r.full_name ?? "").toLowerCase();
+    const tel = String(r.phone ?? "").toLowerCase();
+    const sede = String(r.venue?.name ?? "").toLowerCase();
+    const cat = String(r.category?.name ?? "").toLowerCase();
+    return (
+      nombre.includes(needle) ||
+      tel.includes(needle) ||
+      sede.includes(needle) ||
+      cat.includes(needle)
+    );
+  });
+}
+```
+
+### Registration Table
+
+Each registration displays:
+
+| Field | Description |
+|-------|-------------|
+| **Player** | Full name with initial avatar and registration date |
+| **Age** | Calculated age based on birth date |
+| **Phone** | WhatsApp contact number with copy button |
+| **Category** | Assigned category badge |
+| **Venue** | Selected training venue |
+| **Actions** | Copy phone and view details buttons |
+
+### Export Functionality
+
+Admins can export filtered registrations to CSV format:
+
+```tsx components/admin/dashboard.tsx
+function exportCSV(rows: RegistrationRow[]) {
+  const headers = ["Nombre", "Edad", "Teléfono", "Sede", "Categoría", "Fecha"];
+
+  const lines = rows.map((r) => {
+    const sede = normalize(r.venue?.name, "Sin sede");
+    const cat = normalize(r.category?.name, "Sin categoría");
+    const age = calcAge(r.birth_date);
+    const fecha = formatFecha(r.created_at);
+
+    const cells = [
+      r.full_name ?? "",
+      age == null ? "" : String(age),
+      r.phone ?? "",
+      sede,
+      cat,
+      fecha,
+    ].map((x) => `"${String(x).replaceAll('"', '""')}"`);
+
+    return cells.join(",");
+  });
+
+  const csv = [headers.join(","), ...lines].join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `registros_${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+```
+
+## Data Loading
+
+The dashboard loads registration data with related venue and category information:
+
+```tsx components/admin/dashboard.tsx
+const { data, error } = await supabase
+  .from("player_registrations")
+  .select(
+    `
+    id,
+    full_name,
+    birth_date,
+    phone,
+    created_at,
+    venue:venues ( id, name, place ),
+    category:categories ( id, name, year_from, year_to, sort_order )
+  `
+  )
+  .order("created_at", { ascending: false });
+```
+
+## Quick Actions
+
+The top navigation bar provides quick actions:
+
+<CardGroup cols={2}>
+  <Card title="Refresh" icon="rotate">
+    Reload data from the database to see latest registrations
+  </Card>
+  <Card title="Export" icon="download">
+    Download filtered registrations as CSV file
+  </Card>
+</CardGroup>
+
+## Design System
+
+The dashboard uses a consistent design system defined as CSS class variables:
+
+<Tabs>
+  <Tab title="Panel">
+    Premium glass panels with backdrop blur:
+    ```tsx
+    const panel =
+      "rounded-2xl border border-white/10 bg-white/[0.04] backdrop-blur-md shadow-[0_30px_90px_rgba(0,0,0,.45)]";
+    ```
+  </Tab>
+  <Tab title="Soft Surface">
+    Subtle background panels:
+    ```tsx
+    const soft =
+      "rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-md";
+    ```
+  </Tab>
+  <Tab title="Input Fields">
+    Dark input fields with focus states:
+    ```tsx
+    const input =
+      "h-11 w-full rounded-xl bg-black/40 border border-white/10 px-4 text-sm text-white placeholder:text-white/40 outline-none " +
+      "focus-visible:ring-2 focus-visible:ring-[#D50032]/30 focus-visible:border-[#D50032]";
+    ```
+  </Tab>
+</Tabs>
+
+## Background Effects
+
+The dashboard features a premium dark theme with radial gradients:
+
+```tsx components/admin/dashboard.tsx
+<div className="pointer-events-none absolute inset-0 bg-[radial-gradient(900px_500px_at_20%_10%,rgba(213,0,50,.25),transparent_60%)]" />
+<div className="pointer-events-none absolute inset-0 bg-[radial-gradient(900px_500px_at_85%_80%,rgba(213,0,50,.12),transparent_60%)]" />
+<div className="pointer-events-none absolute inset-0 opacity-[0.12] bg-[linear-gradient(to_right,rgba(255,255,255,.08)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,.08)_1px,transparent_1px)] bg-[size:42px_42px]" />
+```
+
+## Utility Functions
+
+### Date Formatting
+
+```tsx components/admin/dashboard.tsx
+function formatFecha(s: string) {
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return "—";
+  return new Intl.DateTimeFormat("es-MX", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  }).format(d);
+}
+```
+
+### Age Calculation
+
+```tsx components/admin/dashboard.tsx
+function calcAge(birthDate: string) {
+  const d = new Date(birthDate);
+  if (Number.isNaN(d.getTime())) return null;
+  const now = new Date();
+  let age = now.getFullYear() - d.getFullYear();
+  const m = now.getMonth() - d.getMonth();
+  if (m < 0 || (m === 0 && now.getDate() < d.getDate())) age--;
+  return age;
+}
+```
+
+## Session Management
+
+The dashboard displays the current admin session and provides a logout function:
+
+```tsx components/admin/dashboard.tsx
+const handleLogout = async () => {
+  const supabase = createClient();
+  await supabase.auth.signOut();
+  window.location.assign("/auth/login");
+};
+```
+
+## Responsive Behavior
+
+<Tabs>
+  <Tab title="Desktop (lg+)">
+    - Fixed sidebar navigation (320px width)
+    - Full table layout with all columns visible
+    - Side-by-side KPI cards (4 columns)
+  </Tab>
+  <Tab title="Tablet (md)">
+    - Sidebar collapses to drawer
+    - Table adapts with some columns stacking
+    - KPI cards in 2 columns
+  </Tab>
+  <Tab title="Mobile (sm)">
+    - Hamburger menu for navigation
+    - Stacked card layout for registrations
+    - Single column KPI cards
+  </Tab>
+</Tabs>
+
+## Integration with Sub-Components
+
+The dashboard imports and renders specialized admin components:
+
+```tsx components/admin/dashboard.tsx
+import HorariosAdmin from "@/components/admin/horariosAdmin";
+import SedesAdmin from "@/components/admin/sedesAdmin";
+
+{active === "horarios" && (
+  <section className="mx-auto max-w-7xl px-6 md:px-10 py-6">
+    <HorariosAdmin
+      panelClass={panel}
+      softClass={soft}
+      inputClass={input}
+      selectClass={select}
+    />
+  </section>
+)}
+
+{active === "sedes" && (
+  <section className="mx-auto max-w-7xl px-6 md:px-10 py-6">
+    <SedesAdmin
+      panelClass={panel}
+      softClass={soft}
+      inputClass={input}
+    />
+  </section>
+)}
+```
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="Venue Management" icon="map-pin" href="/features/venue-management">
+    Manage training venues from the Sedes view
+  </Card>
+  <Card title="Schedule Management" icon="calendar-days" href="/features/schedule-management">
+    Configure training schedules from the Horarios view
+  </Card>
+  <Card title="Category Management" icon="tags" href="/features/category-management">
+    Set up age categories
+  </Card>
+  <Card title="Authentication" icon="lock" href="/admin/authentication">
+    Configure admin authentication
+  </Card>
+</CardGroup>

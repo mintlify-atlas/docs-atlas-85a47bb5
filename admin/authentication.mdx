@@ -1,0 +1,282 @@
+---
+title: Authentication
+description: Learn how admin authentication works in Toluca Altas Montañas using Supabase Auth
+---
+
+## Overview
+
+Toluca Altas Montañas uses **Supabase Authentication** to secure the admin panel. The authentication system provides email/password login with session management and password recovery capabilities.
+
+## Authentication Architecture
+
+### Client-Side Authentication
+
+The application uses Supabase's SSR (Server-Side Rendering) authentication package to handle authentication on both client and server:
+
+```typescript
+// Client-side Supabase client
+import { createBrowserClient } from "@supabase/ssr";
+
+export function createClient() {
+  return createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+  );
+}
+```
+
+### Server-Side Authentication
+
+For server components and API routes, a separate server client is used that integrates with Next.js cookies:
+
+```typescript
+// Server-side Supabase client
+import { createServerClient } from "@supabase/ssr";
+import { cookies } from "next/headers";
+
+export async function createClient() {
+  const cookieStore = await cookies();
+
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll();
+        },
+        setAll(cookiesToSet) {
+          try {
+            cookiesToSet.forEach(({ name, value, options }) =>
+              cookieStore.set(name, value, options),
+            );
+          } catch {
+            // The `setAll` method was called from a Server Component.
+          }
+        },
+      },
+    },
+  );
+}
+```
+
+## Login Flow
+
+### Step 1: Access the Login Page
+
+Administrators access the login page at `/auth/login`. The login form is rendered by the `TolucaLoginForm` component.
+
+### Step 2: Enter Credentials
+
+The login form accepts:
+- **Email**: Must be a valid email address (automatically trimmed and lowercased)
+- **Password**: User's password
+
+### Step 3: Authentication Process
+
+When the user submits the form:
+
+```typescript
+const handleLogin = async (e: React.FormEvent) => {
+  e.preventDefault();
+
+  const supabase = createClient();
+  setIsLoading(true);
+  setError(null);
+
+  try {
+    const cleanEmail = email.trim().toLowerCase();
+    const { error } = await supabase.auth.signInWithPassword({
+      email: cleanEmail,
+      password,
+    });
+    if (error) throw error;
+
+    router.push("/protected");
+    router.refresh();
+  } catch (err: unknown) {
+    setError(
+      err instanceof Error
+        ? err.message
+        : "Ocurrió un error al iniciar sesión"
+    );
+  } finally {
+    setIsLoading(false);
+  }
+};
+```
+
+<Note>
+The email is automatically cleaned by:
+- Trimming whitespace from both ends
+- Converting to lowercase
+
+This prevents common login errors caused by accidental spaces or incorrect capitalization.
+</Note>
+
+### Step 4: Redirect to Admin Panel
+
+On successful authentication:
+1. User is redirected to `/protected`
+2. Session is established via HTTP-only cookies
+3. Admin dashboard loads
+
+## Protected Routes
+
+### Route Protection
+
+The `/protected` route uses server-side authentication checks to ensure only authenticated users can access the admin panel:
+
+```typescript
+async function ProtectedGate() {
+  const supabase = await createClient();
+  const { data, error } = await supabase.auth.getClaims();
+
+  if (error || !data?.claims) {
+    redirect("/auth/login");
+  }
+
+  return <Dashboard />;
+}
+```
+
+<Steps>
+  <Step title="Server checks auth status">
+    The server component calls `auth.getClaims()` to verify the user's session.
+  </Step>
+  
+  <Step title="Validate claims">
+    If no valid claims exist or an error occurs, the user is redirected to login.
+  </Step>
+  
+  <Step title="Render dashboard">
+    If authentication is successful, the admin dashboard component is rendered.
+  </Step>
+</Steps>
+
+## Password Recovery
+
+### Requesting Password Reset
+
+Administrators can reset their password by clicking "¿Olvidaste tu contraseña?" on the login page, which navigates to `/auth/forgot-password`.
+
+The password reset flow:
+
+```typescript
+const handleForgotPassword = async (e: React.FormEvent) => {
+  e.preventDefault();
+  const supabase = createClient();
+  setIsLoading(true);
+  setError(null);
+
+  try {
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/auth/update-password`,
+    });
+    if (error) throw error;
+    setSuccess(true);
+  } catch (error: unknown) {
+    setError(error instanceof Error ? error.message : "An error occurred");
+  } finally {
+    setIsLoading(false);
+  }
+};
+```
+
+<Steps>
+  <Step title="Enter email address">
+    User enters their registered email address in the forgot password form.
+  </Step>
+  
+  <Step title="Request reset email">
+    System calls `resetPasswordForEmail()` with the user's email and a redirect URL.
+  </Step>
+  
+  <Step title="Check email">
+    User receives an email with a secure reset link (if the email is registered).
+  </Step>
+  
+  <Step title="Click reset link">
+    Clicking the link redirects to `/auth/update-password` where a new password can be set.
+  </Step>
+</Steps>
+
+<Warning>
+The password reset URL must be configured in your Supabase dashboard under:
+**Authentication > URL Configuration > Redirect URLs**
+
+Add: `https://yourdomain.com/auth/update-password`
+</Warning>
+
+## Logging Out
+
+To log out from the admin panel:
+
+```typescript
+const handleLogout = async () => {
+  const supabase = createClient();
+  await supabase.auth.signOut();
+  window.location.assign("/auth/login");
+};
+```
+
+This:
+1. Calls `signOut()` to invalidate the session
+2. Clears authentication cookies
+3. Redirects to the login page
+
+## Security Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Session Management" icon="cookie">
+    Sessions are stored in HTTP-only cookies, preventing XSS attacks from accessing tokens.
+  </Card>
+  
+  <Card title="Server-Side Validation" icon="shield-check">
+    All protected routes validate authentication on the server, not just the client.
+  </Card>
+  
+  <Card title="Email Verification" icon="envelope-circle-check">
+    Emails are automatically normalized (trimmed and lowercased) to prevent login issues.
+  </Card>
+  
+  <Card title="Password Reset Security" icon="key">
+    Reset links are single-use and time-limited tokens sent via email.
+  </Card>
+</CardGroup>
+
+## Environment Variables
+
+Ensure these environment variables are configured:
+
+```bash
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your_supabase_anon_key
+```
+
+<Note>
+These variables are safe to expose in the browser as they only provide access to Row Level Security (RLS) protected resources.
+</Note>
+
+## Troubleshooting
+
+### Common Issues
+
+| Issue | Solution |
+|-------|----------|
+| "Invalid login credentials" | Verify email/password are correct. Check for trailing spaces in email. |
+| Session expired | Click "Cerrar sesión" and log in again. |
+| Password reset not received | Check spam folder. Verify redirect URLs are configured in Supabase dashboard. |
+| Redirect loop after login | Clear browser cookies and try again. Check server-side auth implementation. |
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Managing Registrations" icon="users" href="/admin/managing-registrations">
+    Learn how to view and manage player registrations
+  </Card>
+  
+  <Card title="Filtering and Search" icon="magnifying-glass" href="/admin/filtering-and-search">
+    Master the filtering and search capabilities
+  </Card>
+</CardGroup>

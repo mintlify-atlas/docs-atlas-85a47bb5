@@ -1,0 +1,219 @@
+---
+title: 'Database Tables'
+description: 'Detailed documentation of all database tables, columns, and constraints'
+---
+
+## Tables Overview
+
+The Toluca Altas Montañas database consists of four main tables that work together to manage player registrations and training schedules.
+
+---
+
+## venues
+
+Stores information about physical training locations (sedes) where training sessions take place.
+
+### Schema
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | uuid | PRIMARY KEY, DEFAULT gen_random_uuid() | Unique identifier |
+| `name` | text | NOT NULL | Venue name (e.g., "Río Blanco") |
+| `place` | text | NOT NULL | Full address/location description |
+| `created_at` | timestamptz | NOT NULL, DEFAULT now() | Record creation timestamp |
+| `updated_at` | timestamptz | NOT NULL, DEFAULT now() | Last update timestamp |
+
+### Constraints
+
+- **Primary Key**: `id`
+- **Unique Constraint**: `venues_unique` on `(name, place)` - prevents duplicate venue entries
+
+### Triggers
+
+- `venues_set_updated_at`: Automatically updates `updated_at` on row modification
+
+### Example Data
+
+```sql
+INSERT INTO venues (name, place) VALUES
+  ('Río Blanco', 'Río Blanco, Veracruz - Estadio 7 de Enero'),
+  ('Jalapilla', 'Jalapilla, Veracruz - Campo Jalapilla');
+```
+
+---
+
+## categories
+
+Defines player categories based on birth year ranges. Each category represents an age group for organizing players.
+
+### Schema
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | uuid | PRIMARY KEY, DEFAULT gen_random_uuid() | Unique identifier |
+| `name` | text | NOT NULL, UNIQUE | Category name (e.g., "Dientes de Leche") |
+| `year_from` | int | NOT NULL | Starting birth year (inclusive) |
+| `year_to` | int | NOT NULL | Ending birth year (inclusive) |
+| `sort_order` | int | NOT NULL, DEFAULT 0 | Display order for UI |
+| `created_at` | timestamptz | NOT NULL, DEFAULT now() | Record creation timestamp |
+| `updated_at` | timestamptz | NOT NULL, DEFAULT now() | Last update timestamp |
+
+### Constraints
+
+- **Primary Key**: `id`
+- **Unique Constraint**: `name` must be unique
+- **Check Constraint**: `categories_year_range` ensures `year_from <= year_to`
+- **Check Constraint**: `categories_year_limits` ensures years are between 1900 and current year + 1
+
+### Triggers
+
+- `categories_set_updated_at`: Automatically updates `updated_at` on row modification
+
+### Example Data
+
+```sql
+INSERT INTO categories (name, year_from, year_to, sort_order) VALUES
+  ('Dientes de Leche', 2020, 2021, 1),
+  ('Chupón', 2018, 2019, 2),
+  ('Biberón', 2016, 2017, 3),
+  ('Pony', 2014, 2015, 4),
+  ('Infantil', 2012, 2013, 5),
+  ('Intermedia', 2010, 2011, 6),
+  ('Juvenil', 2008, 2009, 7);
+```
+
+---
+
+## schedules
+
+Defines training schedules by linking venues and categories to specific days and times.
+
+### Schema
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | uuid | PRIMARY KEY, DEFAULT gen_random_uuid() | Unique identifier |
+| `category_id` | uuid | NOT NULL, FOREIGN KEY | References categories(id) |
+| `venue_id` | uuid | NOT NULL, FOREIGN KEY | References venues(id) |
+| `weekday` | smallint | NOT NULL | Day of week (1=Monday, 7=Sunday) |
+| `start_time` | time | NOT NULL | Training start time |
+| `end_time` | time | NOT NULL | Training end time |
+| `is_optional` | boolean | NOT NULL, DEFAULT false | Whether attendance is optional |
+| `note` | text | NULLABLE | Additional notes about this schedule |
+| `created_at` | timestamptz | NOT NULL, DEFAULT now() | Record creation timestamp |
+| `updated_at` | timestamptz | NOT NULL, DEFAULT now() | Last update timestamp |
+
+### Constraints
+
+- **Primary Key**: `id`
+- **Foreign Keys**:
+  - `category_id` → `categories(id)` ON DELETE CASCADE
+  - `venue_id` → `venues(id)` ON DELETE CASCADE
+- **Check Constraint**: `schedules_weekday_valid` ensures `weekday BETWEEN 1 AND 7`
+- **Check Constraint**: `schedules_time_valid` ensures `start_time < end_time`
+- **Unique Constraint**: `schedules_unique` on `(category_id, venue_id, weekday, start_time, end_time)`
+
+### Indexes
+
+- `schedules_by_category` on `category_id`
+- `schedules_by_venue` on `venue_id`
+
+### Triggers
+
+- `schedules_set_updated_at`: Automatically updates `updated_at` on row modification
+
+### Weekday Values
+
+| Value | Day |
+|-------|-----|
+| 1 | Monday (Lunes) |
+| 2 | Tuesday (Martes) |
+| 3 | Wednesday (Miércoles) |
+| 4 | Thursday (Jueves) |
+| 5 | Friday (Viernes) |
+| 6 | Saturday (Sábado) |
+| 7 | Sunday (Domingo) |
+
+---
+
+## player_registrations
+
+Stores player registration information collected through the landing page form.
+
+### Schema
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | uuid | PRIMARY KEY, DEFAULT gen_random_uuid() | Unique identifier |
+| `full_name` | text | NOT NULL | Player's full name |
+| `birth_date` | date | NOT NULL | Player's date of birth |
+| `birth_year` | smallint | GENERATED ALWAYS | Automatically calculated from birth_date |
+| `phone` | text | NOT NULL | Contact phone number |
+| `venue_id` | uuid | NOT NULL, FOREIGN KEY | Selected venue |
+| `category_id` | uuid | NOT NULL, FOREIGN KEY | Selected category |
+| `created_at` | timestamptz | NOT NULL, DEFAULT now() | Registration timestamp |
+
+### Constraints
+
+- **Primary Key**: `id`
+- **Foreign Keys**:
+  - `venue_id` → `venues(id)` ON DELETE RESTRICT
+  - `category_id` → `categories(id)` ON DELETE RESTRICT
+
+### Indexes
+
+- `idx_player_reg_birth_year` on `birth_year`
+- `idx_player_reg_venue` on `venue_id`
+- `idx_player_reg_category` on `category_id`
+
+### Generated Column
+
+<Warning>
+  The `birth_year` column is **GENERATED ALWAYS** and should **never** be manually inserted or updated. It is automatically computed from the `birth_date` field.
+</Warning>
+
+```sql
+birth_year smallint generated always as 
+  ((extract(year from birth_date))::smallint) stored
+```
+
+### Example Insert
+
+```sql
+-- Correct - do NOT include birth_year
+INSERT INTO player_registrations 
+  (full_name, birth_date, phone, venue_id, category_id)
+VALUES 
+  ('Juan Pérez', '2015-05-20', '2281234567', 
+   '...venue-uuid...', '...category-uuid...');
+```
+
+### Delete Restrictions
+
+The `ON DELETE RESTRICT` constraint prevents deletion of:
+- Venues that have associated player registrations
+- Categories that have associated player registrations
+
+This protects data integrity by ensuring you cannot delete reference data that is actively in use.
+
+---
+
+## Common Patterns
+
+### UUID Primary Keys
+
+All tables use UUID primary keys generated by `gen_random_uuid()`. This provides:
+- Globally unique identifiers
+- Better security (non-sequential)
+- Easier data merging and replication
+
+### Timestamp Tracking
+
+Most tables track:
+- `created_at`: When the record was created
+- `updated_at`: When the record was last modified (auto-updated by trigger)
+
+### Cascade vs. Restrict Deletes
+
+- **CASCADE** (schedules): When a venue or category is deleted, all associated schedules are automatically deleted
+- **RESTRICT** (player_registrations): Prevents deletion of venues/categories that have player registrations

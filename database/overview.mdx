@@ -1,0 +1,120 @@
+---
+title: 'Database Overview'
+description: 'Overview of the Toluca Altas Montañas database architecture and schema'
+---
+
+## Introduction
+
+Toluca Altas Montañas uses **Supabase (PostgreSQL)** as its database backend, providing a robust, scalable solution for managing player registrations, venues, categories, and schedules.
+
+## Database Architecture
+
+The database is designed with the following principles:
+
+- **Relational integrity**: Foreign key constraints ensure data consistency
+- **Automatic timestamps**: Triggers maintain `updated_at` fields automatically
+- **Data validation**: Check constraints prevent invalid data entry
+- **Generated columns**: Computed fields like `birth_year` reduce redundancy
+- **Cascading deletes**: Smart delete policies protect data integrity
+
+## Core Tables
+
+The database consists of four main tables:
+
+### venues
+Stores information about physical training locations (sedes). Each venue has a name and place, with a unique constraint to prevent duplicates.
+
+### categories
+Defines player categories based on birth year ranges (e.g., "Dientes de Leche" for players born 2020-2021). Categories include sorting order for display purposes.
+
+### schedules
+Links venues and categories to specific training times. Each schedule defines the day of week, start time, and end time for training sessions.
+
+### player_registrations
+Captures player registration data including full name, birth date, phone, and references to their selected venue and category.
+
+## Key Features
+
+### Automatic Timestamp Management
+
+All tables (except `player_registrations`) use a trigger-based system to automatically update the `updated_at` field whenever a row is modified:
+
+```sql
+create or replace function public.set_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+new.updated_at = now();
+return new;
+end;
+$$;
+```
+
+### Generated Columns
+
+The `birth_year` column in `player_registrations` is automatically calculated from the `birth_date`:
+
+```sql
+birth_year smallint generated always as 
+  ((extract(year from birth_date))::smallint) stored
+```
+
+<Warning>
+  Never manually insert or update the `birth_year` column - it is automatically generated from `birth_date`.
+</Warning>
+
+### Data Validation
+
+The schema includes multiple check constraints to ensure data integrity:
+
+- Category year ranges must be valid (year_from ≤ year_to)
+- Year values must be between 1900 and current year + 1
+- Weekdays must be between 1 (Monday) and 7 (Sunday)
+- Start time must be before end time in schedules
+
+### Unique Constraints
+
+To prevent duplicate data:
+
+- Venues: unique combination of `name` and `place`
+- Categories: unique `name`
+- Schedules: unique combination of `category_id`, `venue_id`, `weekday`, `start_time`, and `end_time`
+
+## Database Technology
+
+**Supabase** provides:
+
+- **PostgreSQL database**: Industry-standard relational database
+- **RESTful API**: Automatic API generation from your schema
+- **Real-time subscriptions**: Live data updates
+- **Authentication**: Built-in auth system
+- **Row Level Security (RLS)**: Fine-grained access control
+
+## Connection Configuration
+
+The application connects to Supabase using environment variables:
+
+```bash
+NEXT_PUBLIC_SUPABASE_URL=YOUR_SUPABASE_URL
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=YOUR_SUPABASE_PUBLISHABLE_KEY
+```
+
+See the [server.ts](/database/overview#server-client) implementation for details on server-side client creation.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Tables" icon="table" href="/database/tables">
+    Detailed documentation of each table schema
+  </Card>
+  <Card title="Relationships" icon="diagram-project" href="/database/relationships">
+    Explore how tables are connected
+  </Card>
+  <Card title="Migrations" icon="database" href="/database/migrations">
+    SQL scripts to create the database schema
+  </Card>
+  <Card title="Seed Data" icon="seedling" href="/database/seed-data">
+    Initial data for venues, categories, and schedules
+  </Card>
+</CardGroup>

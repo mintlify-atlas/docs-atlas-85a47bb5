@@ -1,0 +1,449 @@
+---
+title: 'Row Level Security (RLS) Policies'
+description: 'Database access control and security policies'
+---
+
+## Overview
+
+Row Level Security (RLS) is a PostgreSQL feature that allows you to restrict which rows users can access in database tables. Supabase leverages RLS to provide fine-grained access control.
+
+<Note>
+  The Toluca Altas Montañas project currently **does not implement RLS policies** in the source code. This page provides guidance on how to implement RLS if needed for your deployment.
+</Note>
+
+---
+
+## Why Use RLS?
+
+Without RLS, anyone with your Supabase `anon` key can:
+- Read all data from all tables
+- Insert, update, or delete data
+- Potentially access sensitive information
+
+**Benefits of RLS:**
+- **Security**: Restrict data access at the database level
+- **Multi-tenancy**: Different users see different data
+- **Simplified logic**: Access control in the database, not application code
+- **Defense in depth**: Even if your API is compromised, data remains protected
+
+---
+
+## Current Security Status
+
+<Warning>
+  By default, Supabase tables have RLS **disabled**, meaning:
+  - Anyone with the anon key can read/write all data
+  - This is suitable for development but **not recommended for production**
+  - Consider implementing RLS policies before deploying to production
+</Warning>
+
+### Checking RLS Status
+
+Verify which tables have RLS enabled:
+
+```sql
+SELECT 
+  tablename,
+  rowsecurity as rls_enabled
+FROM pg_tables
+WHERE schemaname = 'public'
+ORDER BY tablename;
+```
+
+---
+
+## Recommended RLS Setup
+
+### Use Case 1: Public Landing Page + Protected Admin Panel
+
+This is the most common setup for Toluca Altas Montañas:
+
+- **Landing page**: Anyone can submit registrations (insert only)
+- **Admin panel**: Authenticated admins can view and manage data (full access)
+
+#### Step 1: Enable RLS
+
+```sql
+-- Enable RLS on all tables
+ALTER TABLE public.venues ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.categories ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.schedules ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.player_registrations ENABLE ROW LEVEL SECURITY;
+```
+
+#### Step 2: Public Read Access for Reference Data
+
+Allow anyone to read venues, categories, and schedules (needed for the registration form):
+
+```sql
+-- Public read access to venues
+CREATE POLICY "venues_public_read"
+ON public.venues
+FOR SELECT
+USING (true);
+
+-- Public read access to categories
+CREATE POLICY "categories_public_read"
+ON public.categories
+FOR SELECT
+USING (true);
+
+-- Public read access to schedules
+CREATE POLICY "schedules_public_read"
+ON public.schedules
+FOR SELECT
+USING (true);
+```
+
+#### Step 3: Public Insert for Registrations
+
+Allow anyone to submit a registration:
+
+```sql
+-- Allow anyone to insert registrations
+CREATE POLICY "registrations_public_insert"
+ON public.player_registrations
+FOR INSERT
+WITH CHECK (true);
+```
+
+#### Step 4: Admin Full Access
+
+Allow authenticated admins to do everything:
+
+```sql
+-- Admins can read all registrations
+CREATE POLICY "registrations_admin_read"
+ON public.player_registrations
+FOR SELECT
+TO authenticated
+USING (true);
+
+-- Admins can update registrations
+CREATE POLICY "registrations_admin_update"
+ON public.player_registrations
+FOR UPDATE
+TO authenticated
+USING (true)
+WITH CHECK (true);
+
+-- Admins can delete registrations
+CREATE POLICY "registrations_admin_delete"
+ON public.player_registrations
+FOR DELETE
+TO authenticated
+USING (true);
+
+-- Admins can manage venues
+CREATE POLICY "venues_admin_all"
+ON public.venues
+FOR ALL
+TO authenticated
+USING (true)
+WITH CHECK (true);
+
+-- Admins can manage categories
+CREATE POLICY "categories_admin_all"
+ON public.categories
+FOR ALL
+TO authenticated
+USING (true)
+WITH CHECK (true);
+
+-- Admins can manage schedules
+CREATE POLICY "schedules_admin_all"
+ON public.schedules
+FOR ALL
+TO authenticated
+USING (true)
+WITH CHECK (true);
+```
+
+---
+
+### Use Case 2: Fully Public (Current Default)
+
+If you want to keep the current behavior where everything is accessible:
+
+```sql
+-- Enable RLS
+ALTER TABLE public.venues ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.categories ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.schedules ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.player_registrations ENABLE ROW LEVEL SECURITY;
+
+-- Allow all operations for everyone
+CREATE POLICY "venues_public_all" ON public.venues FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "categories_public_all" ON public.categories FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "schedules_public_all" ON public.schedules FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "registrations_public_all" ON public.player_registrations FOR ALL USING (true) WITH CHECK (true);
+```
+
+<Warning>
+  This is **not secure** and should only be used for development or if your data is truly meant to be public.
+</Warning>
+
+---
+
+### Use Case 3: Role-Based Access
+
+For more complex scenarios with multiple admin levels:
+
+```sql
+-- Create custom role column (add to migration)
+ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS user_role text DEFAULT 'viewer';
+
+-- Super admins can do everything
+CREATE POLICY "venues_super_admin"
+ON public.venues
+FOR ALL
+TO authenticated
+USING (auth.jwt() ->> 'user_role' = 'super_admin')
+WITH CHECK (auth.jwt() ->> 'user_role' = 'super_admin');
+
+-- Regular admins can only read and update
+CREATE POLICY "venues_admin"
+ON public.venues
+FOR SELECT, UPDATE
+TO authenticated
+USING (auth.jwt() ->> 'user_role' IN ('admin', 'super_admin'))
+WITH CHECK (auth.jwt() ->> 'user_role' IN ('admin', 'super_admin'));
+
+-- Viewers can only read
+CREATE POLICY "venues_viewer"
+ON public.venues
+FOR SELECT
+TO authenticated
+USING (auth.jwt() ->> 'user_role' IN ('viewer', 'admin', 'super_admin'));
+```
+
+---
+
+## Complete RLS Setup Script
+
+Here's a complete script for the recommended setup (Use Case 1):
+
+```sql
+BEGIN;
+
+-- 1) Enable RLS on all tables
+ALTER TABLE public.venues ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.categories ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.schedules ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.player_registrations ENABLE ROW LEVEL SECURITY;
+
+-- 2) Public read access to reference data
+CREATE POLICY "venues_public_read"
+  ON public.venues FOR SELECT
+  USING (true);
+
+CREATE POLICY "categories_public_read"
+  ON public.categories FOR SELECT
+  USING (true);
+
+CREATE POLICY "schedules_public_read"
+  ON public.schedules FOR SELECT
+  USING (true);
+
+-- 3) Public insert for registrations
+CREATE POLICY "registrations_public_insert"
+  ON public.player_registrations FOR INSERT
+  WITH CHECK (true);
+
+-- 4) Admin full access to registrations
+CREATE POLICY "registrations_admin_select"
+  ON public.player_registrations FOR SELECT
+  TO authenticated
+  USING (true);
+
+CREATE POLICY "registrations_admin_update"
+  ON public.player_registrations FOR UPDATE
+  TO authenticated
+  USING (true)
+  WITH CHECK (true);
+
+CREATE POLICY "registrations_admin_delete"
+  ON public.player_registrations FOR DELETE
+  TO authenticated
+  USING (true);
+
+-- 5) Admin full access to reference tables
+CREATE POLICY "venues_admin_all"
+  ON public.venues FOR ALL
+  TO authenticated
+  USING (true)
+  WITH CHECK (true);
+
+CREATE POLICY "categories_admin_all"
+  ON public.categories FOR ALL
+  TO authenticated
+  USING (true)
+  WITH CHECK (true);
+
+CREATE POLICY "schedules_admin_all"
+  ON public.schedules FOR ALL
+  TO authenticated
+  USING (true)
+  WITH CHECK (true);
+
+COMMIT;
+```
+
+---
+
+## Testing RLS Policies
+
+### Test as Anonymous User
+
+In Supabase JavaScript client:
+
+```javascript
+import { createClient } from '@supabase/supabase-js'
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+
+// Should work: Read venues
+const { data: venues } = await supabase.from('venues').select('*')
+
+// Should work: Insert registration
+const { data, error } = await supabase
+  .from('player_registrations')
+  .insert({ full_name: 'Test', birth_date: '2015-01-01', phone: '1234567890', venue_id: '...', category_id: '...' })
+
+// Should fail: Read registrations (if using recommended setup)
+const { data: registrations, error } = await supabase
+  .from('player_registrations')
+  .select('*')
+```
+
+### Test as Authenticated Admin
+
+```javascript
+// First, sign in
+await supabase.auth.signInWithPassword({
+  email: 'admin@example.com',
+  password: 'password'
+})
+
+// Should work: Read all registrations
+const { data: registrations } = await supabase
+  .from('player_registrations')
+  .select('*')
+
+// Should work: Delete registration
+const { error } = await supabase
+  .from('player_registrations')
+  .delete()
+  .eq('id', 'some-uuid')
+```
+
+---
+
+## Viewing Existing Policies
+
+```sql
+SELECT 
+  schemaname,
+  tablename,
+  policyname,
+  permissive,
+  roles,
+  cmd,
+  qual,
+  with_check
+FROM pg_policies
+WHERE schemaname = 'public'
+ORDER BY tablename, policyname;
+```
+
+---
+
+## Removing RLS Policies
+
+If you need to remove policies:
+
+```sql
+-- Drop specific policy
+DROP POLICY IF EXISTS "venues_public_read" ON public.venues;
+
+-- Drop all policies on a table
+DO $$
+DECLARE
+  r RECORD;
+BEGIN
+  FOR r IN (SELECT policyname FROM pg_policies WHERE tablename = 'venues' AND schemaname = 'public')
+  LOOP
+    EXECUTE 'DROP POLICY IF EXISTS ' || quote_ident(r.policyname) || ' ON public.venues';
+  END LOOP;
+END $$;
+
+-- Disable RLS on a table
+ALTER TABLE public.venues DISABLE ROW LEVEL SECURITY;
+```
+
+---
+
+## RLS Policy Best Practices
+
+<Check>
+  **Security Best Practices**:
+  - Always enable RLS in production
+  - Use `TO authenticated` for admin-only operations
+  - Test policies with both authenticated and anonymous users
+  - Use `USING` for read permissions, `WITH CHECK` for write permissions
+  - Be explicit about which operations are allowed (SELECT, INSERT, UPDATE, DELETE)
+  - Regularly audit your policies
+</Check>
+
+<Warning>
+  **Common Pitfalls**:
+  - Enabling RLS without policies locks everyone out (including you!)
+  - `USING (true)` allows everyone - use carefully
+  - Policies are additive - if any policy allows access, the user gets access
+  - Don't forget to test with the actual roles your app uses
+</Warning>
+
+---
+
+## Integration with Authentication
+
+The recommended setup assumes you're using Supabase Auth. Make sure:
+
+1. **Auth is configured** in your Supabase project
+2. **Admin users are created** in the Auth section
+3. **Application uses auth** when accessing admin features
+
+See `/lib/supabase/server.ts` for the server-side client implementation:
+
+```typescript
+import { createServerClient } from "@supabase/ssr";
+import { cookies } from "next/headers";
+
+export async function createClient() {
+  const cookieStore = await cookies();
+  
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll();
+        },
+        setAll(cookiesToSet) {
+          // Handle cookies...
+        },
+      },
+    },
+  );
+}
+```
+
+---
+
+## Next Steps
+
+- **Implement authentication**: Set up Supabase Auth for admin users
+- **Apply RLS policies**: Choose a security model and apply the appropriate policies
+- **Test thoroughly**: Verify that anonymous users and admins have correct access
+- **Monitor access**: Use Supabase dashboard to monitor database access patterns

@@ -1,0 +1,395 @@
+---
+title: Managing Registrations
+description: Complete guide to viewing, managing, and interacting with player registrations in the admin dashboard
+---
+
+## Overview
+
+The Registrations section is the primary interface for administrators to view and manage all player registration data collected through the landing page. It provides a comprehensive table view with filtering, searching, and export capabilities.
+
+## Accessing Registrations
+
+<Steps>
+  <Step title="Log in to admin panel">
+    Navigate to `/auth/login` and authenticate with your credentials.
+  </Step>
+  
+  <Step title="Access protected dashboard">
+    After successful login, you'll be redirected to `/protected` which displays the admin dashboard.
+  </Step>
+  
+  <Step title="Navigate to Registros tab">
+    The "Registros" tab is active by default and shows all player registrations.
+  </Step>
+</Steps>
+
+## Dashboard Layout
+
+The Registrations view consists of several key sections:
+
+### 1. Header Section
+
+The header displays:
+- **ADMIN badge**: Indicates you're in the admin panel
+- **Title**: "Registros de Interesados"
+- **Description**: Brief explanation of the section
+- **New Registration button**: Links to the public registration form
+
+### 2. Key Performance Indicators (KPIs)
+
+Four main KPI cards provide quick insights:
+
+```typescript
+// KPI data is calculated from registrations
+const data = useMemo(() => {
+  const safe = Array.isArray(rows) ? rows : [];
+  
+  // Calculate last 30 days registrations
+  const now = new Date();
+  const last30 = safe.filter((r) => {
+    const d = new Date(r.created_at);
+    if (Number.isNaN(d.getTime())) return false;
+    const diff = now.getTime() - d.getTime();
+    return diff >= 0 && diff <= 30 * 24 * 60 * 60 * 1000;
+  }).length;
+
+  return {
+    total: safe.length,
+    last30,
+    sedesCount: uniqueVenues.length,
+    catsCount: uniqueCategories.length,
+  };
+}, [rows]);
+```
+
+<CardGroup cols={2}>
+  <Card title="Registros totales" icon="users">
+    Total number of all-time player registrations in the system.
+  </Card>
+  
+  <Card title="Últimos 30 días" icon="calendar-days">
+    Number of registrations created in the last 30 days.
+  </Card>
+  
+  <Card title="Sedes" icon="map-pin">
+    Count of unique venues where players want to train.
+  </Card>
+  
+  <Card title="Categorías" icon="tags">
+    Number of unique categories based on player age groups.
+  </Card>
+</CardGroup>
+
+## Data Loading
+
+Registrations are loaded from Supabase with related venue and category information:
+
+```typescript
+const load = async () => {
+  setLoading(true);
+  setError(null);
+
+  const supabase = createClient();
+
+  const { data, error } = await supabase
+    .from("player_registrations")
+    .select(
+      `
+        id,
+        full_name,
+        birth_date,
+        phone,
+        created_at,
+        venue:venues ( id, name, place ),
+        category:categories ( id, name, year_from, year_to, sort_order )
+      `
+    )
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    setError(error.message);
+    setRows([]);
+  } else {
+    const mapped: RegistrationRow[] = (data ?? []).map((r: any) => ({
+      id: r.id,
+      full_name: r.full_name,
+      birth_date: r.birth_date,
+      phone: r.phone,
+      created_at: r.created_at,
+      venue: r.venue ?? null,
+      category: r.category ?? null,
+    }));
+    setRows(mapped);
+  }
+
+  setLoading(false);
+};
+```
+
+<Note>
+The query uses Supabase's relation syntax to join `venues` and `categories` tables, providing complete registration information in a single request.
+</Note>
+
+## Registration Table
+
+### Table Columns
+
+The registration table displays the following information:
+
+| Column | Description | Source |
+|--------|-------------|--------|
+| **Jugador** | Player's full name and registration date | `full_name`, `created_at` |
+| **Edad** | Calculated age based on birth date | Calculated from `birth_date` |
+| **Teléfono** | Contact phone number | `phone` |
+| **Categoría** | Age category assignment | `categories.name` |
+| **Sede** | Preferred training venue | `venues.name` |
+| **Acciones** | Copy phone and view details buttons | - |
+
+### Age Calculation
+
+Player age is dynamically calculated based on birth date:
+
+```typescript
+function calcAge(birthDate: string) {
+  const d = new Date(birthDate);
+  if (Number.isNaN(d.getTime())) return null;
+  const now = new Date();
+  let age = now.getFullYear() - d.getFullYear();
+  const m = now.getMonth() - d.getMonth();
+  if (m < 0 || (m === 0 && now.getDate() < d.getDate())) age--;
+  return age;
+}
+```
+
+This accounts for whether the player's birthday has occurred this year.
+
+### Date Formatting
+
+Registration dates are formatted in Spanish locale:
+
+```typescript
+function formatFecha(s: string) {
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return "—";
+  return new Intl.DateTimeFormat("es-MX", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  }).format(d);
+}
+```
+
+Example output: `14 mar 2026`
+
+## Table Actions
+
+### Refresh Data
+
+Click the **Refrescar** button in the top toolbar to reload all registrations:
+
+```typescript
+<button
+  onClick={load}
+  disabled={loading}
+>
+  <RefreshCw
+    size={16}
+    className={loading ? "animate-spin" : ""}
+  />
+  Refrescar
+</button>
+```
+
+The refresh icon animates while loading.
+
+### Copy Phone Number
+
+Each registration row has a copy button that copies the phone number to clipboard:
+
+```typescript
+const copyPhone = async (phone: string) => {
+  try {
+    await navigator.clipboard.writeText(phone);
+  } catch {
+    // Silently fail if clipboard access is denied
+  }
+};
+```
+
+<Steps>
+  <Step title="Click copy icon">
+    Click the copy icon (📋) next to any registration.
+  </Step>
+  
+  <Step title="Phone copied">
+    The phone number is copied to your clipboard silently.
+  </Step>
+  
+  <Step title="Paste anywhere">
+    Use Cmd+V (Mac) or Ctrl+V (Windows) to paste the phone number.
+  </Step>
+</Steps>
+
+### View Details
+
+Click the eye icon (👁️) to view complete registration details in an alert:
+
+```typescript
+<button
+  onClick={() =>
+    alert(
+      `Jugador: ${r.full_name}\nTel: ${r.phone}\nSede: ${sede}\nCategoría: ${cat}`
+    )
+  }
+>
+  <Eye size={16} />
+</button>
+```
+
+<Note>
+This is a basic implementation. In production, you might want to implement a modal with more detailed information and actions.
+</Note>
+
+## Handling Missing Data
+
+The system gracefully handles missing or null data:
+
+```typescript
+function normalize(v: any, fallback: string) {
+  return v == null || v === "" ? fallback : String(v);
+}
+
+// Usage
+const sede = normalize(r.venue?.name, "Sin sede");
+const cat = normalize(r.category?.name, "Sin categoría");
+```
+
+This ensures:
+- Missing venues display as "Sin sede"
+- Missing categories display as "Sin categoría"
+- Missing ages display as "—"
+
+## Responsive Design
+
+### Desktop View (≥768px)
+
+On desktop, the table displays all columns in a traditional grid layout:
+
+```typescript
+<div className="hidden md:grid grid-cols-12 gap-3">
+  <div className="col-span-4">Jugador</div>
+  <div className="col-span-2">Edad</div>
+  <div className="col-span-2">Teléfono</div>
+  <div className="col-span-2">Categoría</div>
+  <div className="col-span-1">Sede</div>
+  <div className="col-span-1">Acciones</div>
+</div>
+```
+
+### Mobile View (less than 768px)
+
+On mobile, each row stacks information vertically with the most important data (player name and registration date) at the top:
+
+```typescript
+<div className="col-span-12 md:col-span-4">
+  {/* Player name and date - always visible */}
+</div>
+<div className="col-span-6 md:col-span-2">
+  {/* Age */}
+</div>
+<div className="col-span-6 md:col-span-2">
+  {/* Phone */}
+</div>
+```
+
+## Navigation
+
+### Mobile Menu
+
+On mobile devices, click the hamburger menu (☰) to open the sidebar navigation:
+
+```typescript
+const [mobileOpen, setMobileOpen] = useState(false);
+
+<button
+  className="lg:hidden"
+  onClick={() => setMobileOpen(true)}
+>
+  <Menu size={18} />
+</button>
+```
+
+### Desktop Sidebar
+
+On desktop (≥1024px), the sidebar is always visible with navigation options:
+- 👥 Registros (current)
+- 📅 Horarios
+- 📍 Sedes
+- 🏷️ Categorías
+
+## Error Handling
+
+If data loading fails, an error message is displayed:
+
+```typescript
+{error ? (
+  <div className="rounded-xl border border-[#D50032]/25 bg-[#D50032]/10 p-4">
+    <b>⚠</b> {error}
+  </div>
+) : null}
+```
+
+<Warning>
+Common errors include:
+- Database connection issues
+- Permission errors (RLS policies)
+- Network timeouts
+
+Check your Supabase connection and Row Level Security policies if you encounter errors.
+</Warning>
+
+## Empty State
+
+When no registrations match the current filters:
+
+```typescript
+{data.filtrados.length === 0 ? (
+  <div className="px-4 sm:px-6 py-10 text-white/60">
+    No hay resultados con esos filtros.
+  </div>
+) : (
+  // Show table rows
+)}
+```
+
+## Performance Considerations
+
+<CardGroup cols={2}>
+  <Card title="Memoization" icon="bolt">
+    Data transformations are memoized with `useMemo` to prevent unnecessary recalculations.
+  </Card>
+  
+  <Card title="Lazy Loading" icon="spinner">
+    Data is loaded on mount and only refreshed when explicitly requested.
+  </Card>
+  
+  <Card title="Client-Side Filtering" icon="filter">
+    Filtering and searching happen in-memory for instant results.
+  </Card>
+  
+  <Card title="Efficient Queries" icon="database">
+    Related data (venues, categories) is fetched in a single query with joins.
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Filtering and Search" icon="magnifying-glass" href="/admin/filtering-and-search">
+    Learn how to filter and search through registrations efficiently
+  </Card>
+  
+  <Card title="Exporting Data" icon="download" href="/admin/exporting-data">
+    Export registration data to CSV for analysis
+  </Card>
+</CardGroup>

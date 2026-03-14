@@ -1,0 +1,332 @@
+---
+title: Installation
+description: Set up Toluca Altas Montañas sports club management system in minutes
+---
+
+## Prerequisites
+
+Before you begin, ensure you have the following installed:
+
+- **Node.js** 20.x or later
+- **npm** or **yarn** package manager
+- **Git** for version control
+- A **Supabase** account ([sign up free](https://supabase.com))
+
+## Create a Supabase Project
+
+<Steps>
+  <Step title="Sign up for Supabase">
+    Go to [supabase.com](https://supabase.com) and create a free account if you don't have one.
+  </Step>
+
+  <Step title="Create a new project">
+    Click **New Project** and fill in:
+    - Project name: `toluca-altas-montanas`
+    - Database password (save this securely)
+    - Region (choose closest to your users)
+  </Step>
+
+  <Step title="Get your API credentials">
+    Once the project is ready, go to **Settings** → **API**:
+    - Copy the **Project URL** (looks like `https://xxxxx.supabase.co`)
+    - Copy the **anon public** key
+  </Step>
+</Steps>
+
+## Database Setup
+
+<Warning>
+  Run these SQL migrations in the Supabase SQL Editor before installing the app. Go to **SQL Editor** in your Supabase dashboard.
+</Warning>
+
+### Step 1: Create Tables Schema
+
+Run this SQL to create all required tables with proper relationships:
+
+```sql
+begin;
+
+-- 0) Drop existing tables if needed (⚠️ removes all data)
+drop table if exists public.player_registrations cascade;
+drop table if exists public.schedules cascade;
+drop table if exists public.categories cascade;
+drop table if exists public.venues cascade;
+
+-- 1) Function for auto-updating updated_at timestamp
+create or replace function public.set_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
+-- 2) Venues table
+create table public.venues (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  place text not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint venues_unique unique (name, place)
+);
+
+create trigger venues_set_updated_at
+before update on public.venues
+for each row execute function public.set_updated_at();
+
+-- 3) Categories table
+create table public.categories (
+  id uuid primary key default gen_random_uuid(),
+  name text not null unique,
+  year_from int not null,
+  year_to int not null,
+  sort_order int not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint categories_year_range check (year_from <= year_to),
+  constraint categories_year_limits check (
+    year_from between 1900 and (extract(year from now())::int + 1)
+    and year_to between 1900 and (extract(year from now())::int + 1)
+  )
+);
+
+create trigger categories_set_updated_at
+before update on public.categories
+for each row execute function public.set_updated_at();
+
+-- 4) Schedules table
+create table public.schedules (
+  id uuid primary key default gen_random_uuid(),
+  category_id uuid not null references public.categories(id) on delete cascade,
+  venue_id uuid not null references public.venues(id) on delete cascade,
+  weekday smallint not null, -- 1=Monday ... 7=Sunday
+  start_time time not null,
+  end_time time not null,
+  is_optional boolean not null default false,
+  note text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint schedules_weekday_valid check (weekday between 1 and 7),
+  constraint schedules_time_valid check (start_time < end_time),
+  constraint schedules_unique unique (category_id, venue_id, weekday, start_time, end_time)
+);
+
+create trigger schedules_set_updated_at
+before update on public.schedules
+for each row execute function public.set_updated_at();
+
+create index schedules_by_category on public.schedules(category_id);
+create index schedules_by_venue on public.schedules(venue_id);
+
+-- 5) Player registrations table
+create table public.player_registrations (
+  id uuid primary key default gen_random_uuid(),
+  full_name text not null,
+  birth_date date not null,
+  birth_year smallint generated always as ((extract(year from birth_date))::smallint) stored,
+  phone text not null,
+  venue_id uuid not null references public.venues(id) on delete restrict,
+  category_id uuid not null references public.categories(id) on delete restrict,
+  created_at timestamptz not null default now()
+);
+
+create index idx_player_reg_birth_year on public.player_registrations(birth_year);
+create index idx_player_reg_venue on public.player_registrations(venue_id);
+create index idx_player_reg_category on public.player_registrations(category_id);
+
+commit;
+```
+
+### Step 2: Seed Initial Data
+
+Run this SQL to populate venues, categories, and schedules:
+
+```sql
+begin;
+
+-- Insert venues
+insert into public.venues (name, place)
+values
+  ('Río Blanco', 'Río Blanco, Veracruz - Estadio 7 de Enero'),
+  ('Jalapilla', 'Jalapilla, Veracruz - Campo Jalapilla')
+on conflict (name, place) do nothing;
+
+-- Insert age-based categories
+insert into public.categories (name, year_from, year_to, sort_order)
+values
+  ('Dientes de Leche', 2020, 2021, 1),
+  ('Chupón', 2018, 2019, 2),
+  ('Biberón', 2016, 2017, 3),
+  ('Pony', 2014, 2015, 4),
+  ('Infantil', 2012, 2013, 5),
+  ('Intermedia', 2010, 2011, 6),
+  ('Juvenil', 2008, 2009, 7)
+on conflict (name) do update
+set year_from = excluded.year_from,
+    year_to = excluded.year_to,
+    sort_order = excluded.sort_order;
+
+-- Insert training schedules
+insert into public.schedules (category_id, venue_id, weekday, start_time, end_time, is_optional, note)
+select
+  c.id,
+  v.id,
+  s.weekday,
+  s.start_time,
+  s.end_time,
+  false,
+  null
+from public.categories c
+join public.venues v on v.name in ('Río Blanco', 'Jalapilla')
+join (
+  values
+    ('Río Blanco'::text, 1::smallint, '16:00'::time, '18:00'::time),
+    ('Río Blanco'::text, 2::smallint, '16:30'::time, '18:00'::time),
+    ('Río Blanco'::text, 3::smallint, '16:00'::time, '18:00'::time),
+    ('Jalapilla'::text, 2::smallint, '16:00'::time, '18:00'::time),
+    ('Jalapilla'::text, 3::smallint, '16:30'::time, '18:00'::time),
+    ('Jalapilla'::text, 4::smallint, '16:00'::time, '18:00'::time)
+) as s(venue_name, weekday, start_time, end_time)
+  on s.venue_name = v.name
+on conflict (category_id, venue_id, weekday, start_time, end_time) do nothing;
+
+commit;
+```
+
+<Note>
+  The `birth_year` column in `player_registrations` is a **generated column** - never insert it manually. It's automatically computed from `birth_date`.
+</Note>
+
+## Install the Application
+
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/MeguinE/TolucaFC.git
+    cd TolucaFC
+    ```
+  </Step>
+
+  <Step title="Install dependencies">
+    <CodeGroup>
+    ```bash npm
+    npm install
+    ```
+
+    ```bash yarn
+    yarn install
+    ```
+    </CodeGroup>
+
+    This installs all required packages including:
+    - Next.js 15 (App Router)
+    - Supabase client libraries (`@supabase/supabase-js`, `@supabase/ssr`)
+    - React 19
+    - Tailwind CSS
+    - Radix UI components
+    - TypeScript
+  </Step>
+
+  <Step title="Configure environment variables">
+    Create a `.env.local` file in the root directory:
+
+    ```bash
+    NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url
+    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your_supabase_anon_key
+    SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+    ```
+
+    Replace the values with your Supabase credentials:
+    - `NEXT_PUBLIC_SUPABASE_URL`: Your project URL from Supabase dashboard
+    - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`: The anon/public key
+    - `SUPABASE_SERVICE_ROLE_KEY`: Service role key (found in Settings → API → service_role)
+
+    <Warning>
+      Never commit `.env.local` to version control. The service role key has full database access.
+    </Warning>
+  </Step>
+
+  <Step title="Run the development server">
+    <CodeGroup>
+    ```bash npm
+    npm run dev
+    ```
+
+    ```bash yarn
+    yarn dev
+    ```
+    </CodeGroup>
+
+    Your app will be available at [http://localhost:3000](http://localhost:3000)
+  </Step>
+</Steps>
+
+## Verify Installation
+
+Open [http://localhost:3000](http://localhost:3000) in your browser. You should see:
+
+- ✅ Landing page with player registration form
+- ✅ Categories automatically populated from database
+- ✅ Venue selection dropdown working
+- ✅ No console errors
+
+## Optional: Set Up Authentication
+
+To access the admin panel, configure Supabase Auth:
+
+<Steps>
+  <Step title="Enable Email authentication">
+    In Supabase dashboard, go to **Authentication** → **Providers** and enable **Email**.
+  </Step>
+
+  <Step title="Create an admin user">
+    Go to **Authentication** → **Users** → **Add User** and create your admin account.
+  </Step>
+
+  <Step title="Access admin panel">
+    Navigate to [http://localhost:3000/auth/login](http://localhost:3000/auth/login) and sign in.
+  </Step>
+</Steps>
+
+## Available Scripts
+
+Once installed, you can run these commands:
+
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start development server on port 3000 |
+| `npm run build` | Build for production |
+| `npm run start` | Run production build |
+| `npm run lint` | Run ESLint checks |
+
+## Troubleshooting
+
+### "Failed to fetch" errors
+
+- Verify your `.env.local` file has the correct Supabase credentials
+- Check that your Supabase project is active (not paused)
+- Ensure you ran both SQL migration scripts
+
+### Categories not showing up
+
+- Run the seed data SQL script in Step 2 of Database Setup
+- Check the `categories` table in Supabase Table Editor
+
+### "birth_year must not be included" errors
+
+- The `birth_year` column is auto-generated. Never include it in INSERT statements.
+- This is already handled in the codebase at `/app/api/player-registrations/route.ts:26-30`
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart Guide" icon="rocket" href="/quickstart">
+    Build your first player registration flow
+  </Card>
+  <Card title="Database Schema" icon="database" href="/database">
+    Understand the data model and relationships
+  </Card>
+</CardGroup>

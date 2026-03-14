@@ -1,0 +1,471 @@
+---
+title: Filtering and Search
+description: Master the powerful filtering and search capabilities of the admin dashboard to quickly find specific registrations
+---
+
+## Overview
+
+The admin dashboard provides robust filtering and search functionality to help you quickly locate specific registrations. All filtering happens client-side for instant results without additional database queries.
+
+## Search Bar
+
+### Full-Text Search
+
+The search bar performs real-time full-text search across multiple fields:
+
+```typescript
+const [q, setQ] = useState("");
+
+// Search implementation
+if (q.trim()) {
+  const needle = q.trim().toLowerCase();
+  filtrados = filtrados.filter((r) => {
+    const nombre = String(r.full_name ?? "").toLowerCase();
+    const tel = String(r.phone ?? "").toLowerCase();
+    const sede = String(r.venue?.name ?? "").toLowerCase();
+    const cat = String(r.category?.name ?? "").toLowerCase();
+    return (
+      nombre.includes(needle) ||
+      tel.includes(needle) ||
+      sede.includes(needle) ||
+      cat.includes(needle)
+    );
+  });
+}
+```
+
+### Searchable Fields
+
+The search queries these fields simultaneously:
+
+<CardGroup cols={2}>
+  <Card title="Nombre" icon="user">
+    Player's full name (case-insensitive)
+  </Card>
+  
+  <Card title="Teléfono" icon="phone">
+    Contact phone number
+  </Card>
+  
+  <Card title="Sede" icon="map-pin">
+    Venue name where player wants to train
+  </Card>
+  
+  <Card title="Categoría" icon="tag">
+    Age category name
+  </Card>
+</CardGroup>
+
+### Search Behavior
+
+<Steps>
+  <Step title="Type search query">
+    Enter any search term in the search bar. The search is case-insensitive.
+  </Step>
+  
+  <Step title="Automatic filtering">
+    Results update instantly as you type (no need to press Enter).
+  </Step>
+  
+  <Step title="Partial matching">
+    Search matches partial strings anywhere in the field (not just at the start).
+  </Step>
+  
+  <Step title="Clear search">
+    Delete the search text to show all registrations again.
+  </Step>
+</Steps>
+
+### Search Examples
+
+| Search Query | Matches |
+|--------------|----------|
+| `Juan` | Players with "Juan" in their name |
+| `5512` | Phone numbers containing "5512" |
+| `Metepec` | Registrations for Metepec venue |
+| `Sub-17` | Players in Sub-17 category |
+| `garcia` | Any field containing "garcia" (case-insensitive) |
+
+<Note>
+Search automatically trims whitespace and converts to lowercase, so "  JUAN  " is treated the same as "juan".
+</Note>
+
+## Venue Filter
+
+### Filter by Venue
+
+The venue dropdown allows you to filter registrations by their preferred training location:
+
+```typescript
+const [sedeSel, setSedeSel] = useState("Todas");
+
+// Extract unique venues from data
+const sedesSet = new Set<string>();
+for (const r of safe) {
+  sedesSet.add(normalize(r.venue?.name, "Sin sede"));
+}
+const sedes = ["Todas", ...Array.from(sedesSet).sort()];
+
+// Apply venue filter
+if (sedeSel !== "Todas") {
+  filtrados = filtrados.filter(
+    (r) => normalize(r.venue?.name, "Sin sede") === sedeSel
+  );
+}
+```
+
+### Venue Filter Options
+
+The dropdown automatically populates with:
+- **Todas**: Shows all registrations (default)
+- All unique venue names from existing registrations (alphabetically sorted)
+- **Sin sede**: Registrations without an assigned venue
+
+<Steps>
+  <Step title="Click venue dropdown">
+    Click the venue selector in the filter bar.
+  </Step>
+  
+  <Step title="Select venue">
+    Choose a specific venue or "Todas" to see all.
+  </Step>
+  
+  <Step title="View filtered results">
+    The table instantly updates to show only registrations for the selected venue.
+  </Step>
+</Steps>
+
+## Category Filter
+
+### Filter by Category
+
+The category dropdown filters registrations by age group:
+
+```typescript
+const [catSel, setCatSel] = useState("Todas");
+
+// Extract unique categories from data
+const catsSet = new Set<string>();
+for (const r of safe) {
+  catsSet.add(normalize(r.category?.name, "Sin categoría"));
+}
+const categorias = ["Todas", ...Array.from(catsSet).sort()];
+
+// Apply category filter
+if (catSel !== "Todas") {
+  filtrados = filtrados.filter(
+    (r) => normalize(r.category?.name, "Sin categoría") === catSel
+  );
+}
+```
+
+### Category Filter Options
+
+The dropdown includes:
+- **Todas**: Shows all registrations (default)
+- All unique category names (alphabetically sorted)
+- **Sin categoría**: Registrations without a category assignment
+
+<Note>
+Categories are typically age-based (e.g., Sub-13, Sub-15, Sub-17) and are automatically assigned based on the player's birth date during registration.
+</Note>
+
+## Combined Filtering
+
+### Filter Composition
+
+Filters work together in a logical AND relationship:
+
+```typescript
+const data = useMemo(() => {
+  let filtrados = safe;
+
+  // 1. Apply venue filter
+  if (sedeSel !== "Todas") {
+    filtrados = filtrados.filter(
+      (r) => normalize(r.venue?.name, "Sin sede") === sedeSel
+    );
+  }
+
+  // 2. Apply category filter
+  if (catSel !== "Todas") {
+    filtrados = filtrados.filter(
+      (r) => normalize(r.category?.name, "Sin categoría") === catSel
+    );
+  }
+
+  // 3. Apply search query
+  if (q.trim()) {
+    const needle = q.trim().toLowerCase();
+    filtrados = filtrados.filter((r) => {
+      // Search logic...
+    });
+  }
+
+  return { filtrados, /* ... */ };
+}, [rows, q, sedeSel, catSel]);
+```
+
+### Filter Order
+
+<Steps>
+  <Step title="Venue filter applied first">
+    Narrows down to registrations from a specific venue (if selected).
+  </Step>
+  
+  <Step title="Category filter applied second">
+    Further filters to a specific age category (if selected).
+  </Step>
+  
+  <Step title="Search applied last">
+    Searches within the already-filtered results.
+  </Step>
+</Steps>
+
+### Combined Filter Examples
+
+<AccordionGroup>
+  <Accordion title="Example 1: Find all Sub-17 players in Metepec">
+    1. Select "Metepec" from venue dropdown
+    2. Select "Sub-17" from category dropdown
+    3. Result: Only Sub-17 players registered for Metepec
+  </Accordion>
+  
+  <Accordion title="Example 2: Search for 'Garcia' in Toluca venue">
+    1. Select "Toluca" from venue dropdown
+    2. Type "Garcia" in search bar
+    3. Result: All players with "Garcia" in their name/phone at Toluca venue
+  </Accordion>
+  
+  <Accordion title="Example 3: Find Sub-15 players with phone starting with 55">
+    1. Select "Sub-15" from category dropdown
+    2. Type "55" in search bar
+    3. Result: Sub-15 players whose phone numbers contain "55"
+  </Accordion>
+</AccordionGroup>
+
+## Result Counter
+
+The interface displays the number of filtered results in real-time:
+
+```typescript
+<div className="text-sm text-white/60">
+  Mostrando:{" "}
+  <b className="text-white">
+    {loading ? "…" : data.filtrados.length}
+  </b>
+</div>
+```
+
+This counter updates instantly as you modify filters, showing:
+- "…" while loading initial data
+- The exact number of matching registrations
+
+## Filter Performance
+
+### Memoization
+
+All filter computations are memoized to prevent unnecessary recalculation:
+
+```typescript
+const data = useMemo(() => {
+  // All filtering logic...
+}, [rows, q, sedeSel, catSel]);
+```
+
+This means:
+- Filters only recalculate when `rows`, `q`, `sedeSel`, or `catSel` change
+- Re-renders don't cause filter re-computation
+- Provides instant filtering even with thousands of registrations
+
+<CardGroup cols={2}>
+  <Card title="Client-Side" icon="desktop">
+    All filtering happens in the browser—no server requests needed.
+  </Card>
+  
+  <Card title="Instant Results" icon="bolt">
+    Results appear immediately as you type or select filters.
+  </Card>
+  
+  <Card title="Memory Efficient" icon="microchip">
+    Memoization prevents redundant calculations on re-renders.
+  </Card>
+  
+  <Card title="Scalable" icon="chart-line">
+    Handles large datasets efficiently with optimized filtering algorithms.
+  </Card>
+</CardGroup>
+
+## Clearing Filters
+
+### Reset Individual Filters
+
+To clear a specific filter:
+
+<Steps>
+  <Step title="Clear search">
+    Delete all text from the search bar.
+  </Step>
+  
+  <Step title="Reset venue filter">
+    Select "Todas" from the venue dropdown.
+  </Step>
+  
+  <Step title="Reset category filter">
+    Select "Todas" from the category dropdown.
+  </Step>
+</Steps>
+
+### Reset All Filters
+
+To clear all filters at once:
+
+```typescript
+// Programmatically reset all filters
+setQ("");
+setSedeSel("Todas");
+setCatSel("Todas");
+```
+
+<Note>
+Currently, there's no "Clear All Filters" button in the UI. You must manually reset each filter. Consider adding this feature for improved UX.
+</Note>
+
+## Mobile Filtering
+
+### Responsive Filter Layout
+
+On mobile devices, filters stack vertically for better usability:
+
+```typescript
+<div className="flex flex-col lg:flex-row gap-3">
+  <div className="flex-1">
+    {/* Search bar - full width on mobile */}
+  </div>
+  
+  <select className="md:w-64">
+    {/* Venue filter - full width on mobile, 256px on desktop */}
+  </select>
+  
+  <select className="md:w-64">
+    {/* Category filter - full width on mobile, 256px on desktop */}
+  </select>
+</div>
+```
+
+### Mobile Filter UX
+
+<CardGroup cols={2}>
+  <Card title="Touch-Friendly" icon="hand-pointer">
+    All filter controls are sized for easy touch interaction.
+  </Card>
+  
+  <Card title="Stacked Layout" icon="bars-staggered">
+    Filters stack vertically on narrow screens (less than 768px).
+  </Card>
+  
+  <Card title="Full Width" icon="arrows-left-right">
+    Search and dropdowns expand to full width for easier typing/selection.
+  </Card>
+  
+  <Card title="Persistent" icon="thumbtack">
+    Filter bar scrolls with content for easy access.
+  </Card>
+</CardGroup>
+
+## Advanced Filtering Tips
+
+### Tip 1: Search by Phone
+
+Quickly find a specific registration if you have any part of their phone number:
+
+```
+Search: 5512345
+Finds: All registrations with phones containing "5512345"
+```
+
+### Tip 2: Find Unassigned Registrations
+
+To find registrations missing venue or category assignments:
+
+<Tabs>
+  <Tab title="Missing Venue">
+    Select "Sin sede" from the venue filter to find registrations without a venue.
+  </Tab>
+  
+  <Tab title="Missing Category">
+    Select "Sin categoría" from the category filter to find registrations without a category.
+  </Tab>
+</Tabs>
+
+### Tip 3: Combine Filters for Reports
+
+Use multiple filters to generate specific reports:
+
+```
+Example: Monthly report for a specific venue
+1. Filter by venue: "Metepec"
+2. Export results (see Exporting Data guide)
+3. Filter shows registrations for analysis
+```
+
+<Warning>
+Remember that filters affect what gets exported. Always verify your active filters before exporting data to ensure you're exporting the intended dataset.
+</Warning>
+
+## Filter State Persistence
+
+### Current Behavior
+
+Filter state is stored in React component state:
+
+```typescript
+const [q, setQ] = useState("");
+const [sedeSel, setSedeSel] = useState("Todas");
+const [catSel, setCatSel] = useState("Todas");
+```
+
+<Note>
+**Important**: Filter state is **not persisted** across page reloads or navigation. When you refresh the page or navigate away and back, all filters reset to their defaults.
+</Note>
+
+### Potential Enhancement
+
+Consider implementing URL-based filter persistence:
+
+```typescript
+// Example: Store filters in URL query params
+const router = useRouter();
+const searchParams = useSearchParams();
+
+// Read filters from URL
+const q = searchParams.get('search') ?? '';
+const sedeSel = searchParams.get('venue') ?? 'Todas';
+const catSel = searchParams.get('category') ?? 'Todas';
+
+// Update URL when filters change
+const updateFilters = (newFilters) => {
+  const params = new URLSearchParams();
+  if (newFilters.search) params.set('search', newFilters.search);
+  if (newFilters.venue !== 'Todas') params.set('venue', newFilters.venue);
+  if (newFilters.category !== 'Todas') params.set('category', newFilters.category);
+  router.push(`?${params.toString()}`);
+};
+```
+
+This would allow:
+- Sharable filtered views via URL
+- Browser back/forward navigation through filter states
+- Filter persistence across page reloads
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Exporting Data" icon="download" href="/admin/exporting-data">
+    Learn how to export filtered registrations to CSV format
+  </Card>
+  
+  <Card title="Managing Registrations" icon="users" href="/admin/managing-registrations">
+    Return to the main registrations guide
+  </Card>
+</CardGroup>

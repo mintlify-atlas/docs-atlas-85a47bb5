@@ -1,0 +1,368 @@
+---
+title: 'Seed Data'
+description: 'Initial data scripts for venues, categories, and schedules'
+---
+
+## Overview
+
+After running the database migration, you need to populate the database with initial seed data for venues, categories, and schedules. This page contains the complete seed script.
+
+<Note>
+  Seed data should be run **after** the migration script. The migration creates the tables, and the seed data populates them with initial records.
+</Note>
+
+---
+
+## Running the Seed Script
+
+### Using Supabase Dashboard
+
+1. Navigate to your Supabase project
+2. Go to **SQL Editor** in the left sidebar
+3. Click **New Query**
+4. Copy and paste the seed script below
+5. Click **Run** to execute
+
+### Using psql
+
+```bash
+psql "postgresql://postgres:[YOUR-PASSWORD]@db.[YOUR-PROJECT].supabase.co:5432/postgres" < seed.sql
+```
+
+---
+
+## Complete Seed Script
+
+```sql
+begin;
+
+-- SEDES (Venues)
+insert into public.venues (name, place)
+values
+  ('Río Blanco', 'Río Blanco, Veracruz - Estadio 7 de Enero'),
+  ('Jalapilla', 'Jalapilla, Veracruz - Campo Jalapilla')
+on conflict (name, place) do nothing;
+
+-- CATEGORÍAS (Categories)
+insert into public.categories (name, year_from, year_to, sort_order)
+values
+  ('Dientes de Leche', 2020, 2021, 1),
+  ('Chupón', 2018, 2019, 2),
+  ('Biberón', 2016, 2017, 3),
+  ('Pony', 2014, 2015, 4),
+  ('Infantil', 2012, 2013, 5),
+  ('Intermedia', 2010, 2011, 6),
+  ('Juvenil', 2008, 2009, 7)
+on conflict (name) do update
+set year_from = excluded.year_from,
+    year_to = excluded.year_to,
+    sort_order = excluded.sort_order;
+
+-- HORARIOS (Schedules)
+insert into public.schedules (category_id, venue_id, weekday, start_time, end_time, is_optional, note)
+select
+  c.id,
+  v.id,
+  s.weekday,
+  s.start_time,
+  s.end_time,
+  false,
+  null
+from public.categories c
+join public.venues v on v.name in ('Río Blanco', 'Jalapilla')
+join (
+  values
+    ('Río Blanco'::text, 1::smallint, '16:00'::time, '18:00'::time),
+    ('Río Blanco'::text, 2::smallint, '16:30'::time, '18:00'::time),
+    ('Río Blanco'::text, 3::smallint, '16:00'::time, '18:00'::time),
+    ('Jalapilla'::text, 2::smallint, '16:00'::time, '18:00'::time),
+    ('Jalapilla'::text, 3::smallint, '16:30'::time, '18:00'::time),
+    ('Jalapilla'::text, 4::smallint, '16:00'::time, '18:00'::time)
+) as s(venue_name, weekday, start_time, end_time)
+  on s.venue_name = v.name
+on conflict (category_id, venue_id, weekday, start_time, end_time) do nothing;
+
+commit;
+```
+
+---
+
+## Seed Data Breakdown
+
+### 1. Venues
+
+```sql
+insert into public.venues (name, place)
+values
+  ('Río Blanco', 'Río Blanco, Veracruz - Estadio 7 de Enero'),
+  ('Jalapilla', 'Jalapilla, Veracruz - Campo Jalapilla')
+on conflict (name, place) do nothing;
+```
+
+Creates two training venues:
+
+| Name | Location |
+|------|----------|
+| Río Blanco | Río Blanco, Veracruz - Estadio 7 de Enero |
+| Jalapilla | Jalapilla, Veracruz - Campo Jalapilla |
+
+**Conflict Handling**: Uses `ON CONFLICT DO NOTHING` to safely re-run the script without creating duplicates.
+
+---
+
+### 2. Categories
+
+```sql
+insert into public.categories (name, year_from, year_to, sort_order)
+values
+  ('Dientes de Leche', 2020, 2021, 1),
+  ('Chupón', 2018, 2019, 2),
+  ('Biberón', 2016, 2017, 3),
+  ('Pony', 2014, 2015, 4),
+  ('Infantil', 2012, 2013, 5),
+  ('Intermedia', 2010, 2011, 6),
+  ('Juvenil', 2008, 2009, 7)
+on conflict (name) do update
+set year_from = excluded.year_from,
+    year_to = excluded.year_to,
+    sort_order = excluded.sort_order;
+```
+
+Creates seven age-based categories:
+
+| Category | Birth Years | Sort Order | Age Range (in 2026) |
+|----------|-------------|------------|---------------------|
+| Dientes de Leche | 2020-2021 | 1 | 5-6 years |
+| Chupón | 2018-2019 | 2 | 7-8 years |
+| Biberón | 2016-2017 | 3 | 9-10 years |
+| Pony | 2014-2015 | 4 | 11-12 years |
+| Infantil | 2012-2013 | 5 | 13-14 years |
+| Intermedia | 2010-2011 | 6 | 15-16 years |
+| Juvenil | 2008-2009 | 7 | 17-18 years |
+
+**Conflict Handling**: Uses `ON CONFLICT DO UPDATE` to update year ranges if the category already exists. This allows you to adjust category year ranges by re-running the seed script.
+
+<Note>
+  Category names are in Spanish, reflecting the local Mexican football culture. "Dientes de Leche" means "Baby Teeth", "Chupón" means "Pacifier", "Biberón" means "Baby Bottle", etc.
+</Note>
+
+---
+
+### 3. Schedules
+
+The schedules seed is more complex because it creates a schedule for **every category** at **each venue** on specific days:
+
+```sql
+insert into public.schedules (category_id, venue_id, weekday, start_time, end_time, is_optional, note)
+select
+  c.id,
+  v.id,
+  s.weekday,
+  s.start_time,
+  s.end_time,
+  false,
+  null
+from public.categories c
+join public.venues v on v.name in ('Río Blanco', 'Jalapilla')
+join (
+  values
+    ('Río Blanco'::text, 1::smallint, '16:00'::time, '18:00'::time),
+    ('Río Blanco'::text, 2::smallint, '16:30'::time, '18:00'::time),
+    ('Río Blanco'::text, 3::smallint, '16:00'::time, '18:00'::time),
+    ('Jalapilla'::text, 2::smallint, '16:00'::time, '18:00'::time),
+    ('Jalapilla'::text, 3::smallint, '16:30'::time, '18:00'::time),
+    ('Jalapilla'::text, 4::smallint, '16:00'::time, '18:00'::time)
+) as s(venue_name, weekday, start_time, end_time)
+  on s.venue_name = v.name
+on conflict (category_id, venue_id, weekday, start_time, end_time) do nothing;
+```
+
+#### Schedule Template
+
+**Río Blanco Training Days:**
+
+| Day | Start Time | End Time |
+|-----|------------|----------|
+| Monday (1) | 16:00 | 18:00 |
+| Tuesday (2) | 16:30 | 18:00 |
+| Wednesday (3) | 16:00 | 18:00 |
+
+**Jalapilla Training Days:**
+
+| Day | Start Time | End Time |
+|-----|------------|----------|
+| Tuesday (2) | 16:00 | 18:00 |
+| Wednesday (3) | 16:30 | 18:00 |
+| Thursday (4) | 16:00 | 18:00 |
+
+#### How It Works
+
+1. **Cross Join Categories and Venues**: Creates a row for every category-venue combination
+2. **Join with Schedule Template**: Adds the specific days/times for each venue
+3. **Result**: Every category gets the same training schedule at each venue
+
+**Example Output**: If there are 7 categories and 2 venues with 3 training days each:
+- Río Blanco: 7 categories × 3 days = **21 schedule records**
+- Jalapilla: 7 categories × 3 days = **21 schedule records**
+- **Total: 42 schedule records**
+
+**Conflict Handling**: Uses `ON CONFLICT DO NOTHING` to prevent duplicates when re-running.
+
+---
+
+## Verification Queries
+
+After running the seed script, verify the data:
+
+### Count Records
+
+```sql
+SELECT 
+  'venues' as table_name, COUNT(*) as count FROM venues
+UNION ALL
+SELECT 
+  'categories', COUNT(*) FROM categories
+UNION ALL
+SELECT 
+  'schedules', COUNT(*) FROM schedules;
+```
+
+**Expected Results:**
+- venues: 2
+- categories: 7
+- schedules: 42 (7 categories × 2 venues × 3 days each)
+
+### View All Venues
+
+```sql
+SELECT id, name, place, created_at 
+FROM venues 
+ORDER BY name;
+```
+
+### View All Categories
+
+```sql
+SELECT id, name, year_from, year_to, sort_order 
+FROM categories 
+ORDER BY sort_order;
+```
+
+### View Schedule Summary
+
+```sql
+SELECT 
+  v.name as venue,
+  COUNT(DISTINCT c.id) as categories_count,
+  COUNT(s.id) as schedules_count,
+  ARRAY_AGG(DISTINCT s.weekday ORDER BY s.weekday) as training_days
+FROM venues v
+LEFT JOIN schedules s ON s.venue_id = v.id
+LEFT JOIN categories c ON s.category_id = c.id
+GROUP BY v.name
+ORDER BY v.name;
+```
+
+### View Schedules by Venue
+
+```sql
+SELECT 
+  v.name as venue,
+  c.name as category,
+  s.weekday,
+  CASE s.weekday
+    WHEN 1 THEN 'Monday'
+    WHEN 2 THEN 'Tuesday'
+    WHEN 3 THEN 'Wednesday'
+    WHEN 4 THEN 'Thursday'
+    WHEN 5 THEN 'Friday'
+    WHEN 6 THEN 'Saturday'
+    WHEN 7 THEN 'Sunday'
+  END as day_name,
+  s.start_time,
+  s.end_time
+FROM schedules s
+JOIN venues v ON s.venue_id = v.id
+JOIN categories c ON s.category_id = c.id
+ORDER BY v.name, s.weekday, s.start_time;
+```
+
+---
+
+## Updating Seed Data
+
+### Adding a New Venue
+
+```sql
+INSERT INTO venues (name, place)
+VALUES ('Nuevo Estadio', 'Ciudad, Estado - Dirección')
+ON CONFLICT (name, place) DO NOTHING;
+```
+
+### Updating Category Year Ranges
+
+As years pass, you'll need to update category year ranges:
+
+```sql
+UPDATE categories
+SET 
+  year_from = year_from + 1,
+  year_to = year_to + 1
+WHERE name IN (
+  'Dientes de Leche', 'Chupón', 'Biberón', 
+  'Pony', 'Infantil', 'Intermedia', 'Juvenil'
+);
+```
+
+Or update the seed script with new years and re-run it (the `ON CONFLICT DO UPDATE` will update existing categories).
+
+### Adding Schedules for New Venue
+
+```sql
+INSERT INTO schedules (category_id, venue_id, weekday, start_time, end_time)
+SELECT 
+  c.id,
+  v.id,
+  1, -- Monday
+  '17:00'::time,
+  '19:00'::time
+FROM categories c
+CROSS JOIN venues v
+WHERE v.name = 'Nuevo Estadio'
+ON CONFLICT DO NOTHING;
+```
+
+---
+
+## Resetting Seed Data
+
+To completely reset and reload seed data:
+
+```sql
+BEGIN;
+
+-- Delete in dependency order
+DELETE FROM player_registrations;
+DELETE FROM schedules;
+DELETE FROM categories;
+DELETE FROM venues;
+
+-- Re-run seed script here
+-- (paste the complete seed script)
+
+COMMIT;
+```
+
+<Warning>
+  This will delete **all player registrations**. Only do this in development or if you explicitly want to reset all data.
+</Warning>
+
+---
+
+## Next Steps
+
+With seed data loaded:
+
+1. **Test the application**: Try registering a player through the landing page
+2. **Configure RLS policies**: See [RLS Policies](/database/rls-policies) to secure your data
+3. **Explore relationships**: See [Table Relationships](/database/relationships) to understand how data is connected
