@@ -1,0 +1,105 @@
+{
+  "projectType": "saas",
+  "projectName": "Toluca Altas Montañas",
+  "projectDescription": "Sports club management system with player registration landing page and comprehensive admin panel for managing registrations, venues, schedules, and categories.",
+  "theme": "aspen",
+  "primaryColor": "#d24752",
+  "lightColor": "#14324d",
+  "darkColor": "#e6dadd",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "features/player-registration",
+              "features/admin-dashboard",
+              "features/venue-management",
+              "features/schedule-management",
+              "features/category-management"
+            ]
+          },
+          {
+            "group": "Admin Guide",
+            "pages": [
+              "admin/authentication",
+              "admin/managing-registrations",
+              "admin/filtering-and-search",
+              "admin/exporting-data"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/environment-variables",
+              "configuration/supabase-setup",
+              "configuration/database-schema"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Database",
+        "groups": [
+          {
+            "group": "Database Schema",
+            "pages": [
+              "database/overview",
+              "database/tables",
+              "database/relationships"
+            ]
+          },
+          {
+            "group": "Data Management",
+            "pages": [
+              "database/migrations",
+              "database/seed-data",
+              "database/rls-policies"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Deployment",
+        "groups": [
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/overview",
+              "deployment/vercel",
+              "deployment/environment-setup"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Public landing page for player registration",
+    "Admin dashboard with KPIs and analytics",
+    "Venue and schedule management",
+    "Category-based player organization",
+    "Advanced filtering and search",
+    "CSV export functionality",
+    "Supabase authentication and database",
+    "Real-time data synchronization"
+  ],
+  "publicApiSurface": [
+    "POST /api/player-registrations",
+    "PlayerRegistrationForm component",
+    "Dashboard component",
+    "SedesAdmin component",
+    "HorariosAdmin component",
+    "createClient (Supabase client factory)"
+  ]
+}
